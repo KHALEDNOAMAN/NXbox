@@ -15,6 +15,8 @@ export async function deployGame(options: {
   keys: string;
   temporary: string;
   transfers?: Transfer[];
+  /** false installs the library app: no game.txt/skip_library.txt. */
+  directBoot?: boolean;
   onUploading?: () => void;
   onProgress?: (name: string, sent: number, total: number) => void;
 }): Promise<string> {
@@ -76,6 +78,7 @@ export async function deployGame(options: {
     );
   }
   // Activate direct boot only after all content transfers have been verified.
+  if (options.directBoot === false) return identity;
   for (const [file, value] of [
     ["game.txt", `games\\base${gameExtension(content[0]!)}\n`],
     ["skip_library.txt", "1\n"],

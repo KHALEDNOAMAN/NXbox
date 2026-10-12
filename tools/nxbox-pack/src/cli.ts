@@ -92,6 +92,7 @@ export async function main(): Promise<void> {
   const text = strings[language];
   let prompt: Prompt | undefined, temporary: string | undefined;
   try {
+    if (process.argv[2] === "--api") return await (await import("./api")).serveApi();
     const options = parseArgs(process.argv.slice(2));
     if (options.help) {
       console.log(text.help);

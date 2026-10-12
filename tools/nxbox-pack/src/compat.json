@@ -1,0 +1,18 @@
+{
+  "010028600EBDA000": {
+    "status": "ingame",
+    "note": "Super Mario 3D World: menus 60 fps; level lighting incomplete on D3D12"
+  },
+  "01007EF00011E000": {
+    "status": "ingame",
+    "note": "Zelda: Breath of the Wild: slow, GPU-thread bound"
+  },
+  "0100152000022000": {
+    "status": "ingame",
+    "note": "Mario Kart 8 Deluxe: needs firmware"
+  },
+  "01005CA01580E000": {
+    "status": "broken",
+    "note": "Persona 5 Royal: black screen on OpenGL path"
+  }
+}
