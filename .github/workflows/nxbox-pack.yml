@@ -1,14 +1,16 @@
 name: Build NXbox Pack
 on:
   push:
-    branches: [main, codex/packer]
+    branches: [main, codex/packer, team/t27-pack-gui]
     paths:
       - tools/nxbox-pack/**
+      - tools/nxbox-pack-gui/**
       - dist/nxbox/AppxManifest.xml
       - .github/workflows/nxbox-pack.yml
   pull_request:
     paths:
       - tools/nxbox-pack/**
+      - tools/nxbox-pack-gui/**
       - dist/nxbox/AppxManifest.xml
       - .github/workflows/nxbox-pack.yml
   workflow_dispatch:
@@ -23,14 +25,23 @@ jobs:
           - os: windows-2025
             script: build:windows
             binary: nxbox-pack-windows-x64.exe
+            core: nxbox-pack.exe
+            gui: nxbox-pack-gui.exe
+            bundle: NXbox-Pack-windows-x64
           - os: macos-15
             script: build:macos
             binary: nxbox-pack-macos-arm64
+            core: nxbox-pack
+            gui: nxbox-pack-gui
+            bundle: NXbox-Pack-macos-arm64
           - os: ubuntu-24.04
             script: build:linux
             binary: nxbox-pack-linux-x64
+            core: nxbox-pack
+            gui: nxbox-pack-gui
+            bundle: NXbox-Pack-linux-x64
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: tools/nxbox-pack
@@ -60,3 +71,21 @@ jobs:
           path: |
             tools/nxbox-pack/dist/${{ matrix.binary }}
             tools/nxbox-pack/dist/${{ matrix.binary }}.sha256
+      # One Rust codebase builds the window on all three systems; the core binary sits next to it.
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux GUI dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libxkbcommon-dev libwayland-dev
+      - name: Build GUI and bundle it with the core
+        shell: bash
+        working-directory: tools/nxbox-pack-gui
+        run: |
+          cargo build --release --locked
+          mkdir -p ../nxbox-pack/dist/bundle
+          cp target/release/${{ matrix.gui }} ../nxbox-pack/dist/bundle/
+          cp ../nxbox-pack/dist/${{ matrix.binary }} ../nxbox-pack/dist/bundle/${{ matrix.core }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.bundle }}
+          if-no-files-found: error
+          path: tools/nxbox-pack/dist/bundle/
