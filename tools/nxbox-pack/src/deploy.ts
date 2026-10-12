@@ -21,7 +21,8 @@ export async function deployGame(options: {
   onProgress?: (name: string, sent: number, total: number) => void;
 }): Promise<string> {
   const { portal, titleId, runtimeDirectory, runtimeFiles, content, keys, temporary } = options;
-  if (!content.length) throw new Error("A base game is required");
+  const library = options.directBoot === false;
+  if (!content.length && !library) throw new Error("A base game is required");
   const identity = packageIdentity(titleId);
   const folder = `${identity}-${crypto.randomUUID()}`;
   for (const file of runtimeFiles)
@@ -33,7 +34,10 @@ export async function deployGame(options: {
   await portal.makeFolder(pkg.PackageFullName, "LocalState/eden", "keys");
   await portal.pushFile(pkg.PackageFullName, keys, "LocalState/eden/keys", "prod.keys");
   for (const [index, path] of content.entries()) {
-    const remoteName = `${index === 0 ? "base" : `addon-${index}`}${gameExtension(path)}`;
+    // The library lists every file in games/, so keep the original names there.
+    const remoteName = library
+      ? posix.basename(path.replaceAll("\\", "/"))
+      : `${index === 0 ? "base" : `addon-${index}`}${gameExtension(path)}`;
     await portal.pushFile(
       pkg.PackageFullName,
       path,
@@ -78,7 +82,7 @@ export async function deployGame(options: {
     );
   }
   // Activate direct boot only after all content transfers have been verified.
-  if (options.directBoot === false) return identity;
+  if (library) return identity;
   for (const [file, value] of [
     ["game.txt", `games\\base${gameExtension(content[0]!)}\n`],
     ["skip_library.txt", "1\n"],

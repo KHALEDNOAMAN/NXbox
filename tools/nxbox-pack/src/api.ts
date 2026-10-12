@@ -2,7 +2,7 @@
 // JSON-lines events on stdout. Same core as the interactive CLI, no prompts.
 import { cp, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, extname, join } from "node:path";
 import compat from "./compat.json";
 import { PackError } from "./i18n";
 import { filenameName, parseTitleId, validateFile, validateName, validateTitleId } from "./files";
@@ -22,7 +22,10 @@ const LIBRARY_ID = "0000000000000000";
 type Emit = (event: Record<string, unknown>) => void;
 export type Job = {
   mode: "game" | "full";
-  game: string;
+  /** Game mode: exactly one. Full mode: zero or more, all go to the library. */
+  games: string[];
+  /** Full mode: boot the firmware HOME instead of the NXbox library (needs firmware). */
+  officialUi?: boolean;
   keys: string;
   name?: string;
   firmware?: string;
@@ -46,25 +49,38 @@ export async function inspect(game: string) {
 export async function runJob(job: Job, emit: Emit): Promise<void> {
   const temporary = await mkdtemp(join(tmpdir(), "nxbox-pack-"));
   try {
-    await validateFile(job.game);
+    const full = job.mode === "full";
+    if (!full && job.games.length !== 1) throw new PackError("file");
+    for (const game of job.games) await validateFile(game);
     await validateFile(job.keys, true);
-    const titleId = validateTitleId(parseTitleId(job.game) ?? "");
+    const titleId = full ? LIBRARY_ID : validateTitleId(parseTitleId(job.games[0]!) ?? "");
     const transfers: Transfer[] = [];
     if (job.firmware) {
       emit({ step: "firmware" });
       const fw = await prepareFirmware(job.firmware, job.keys, join(temporary, "firmware"));
       transfers.push(...fw.files.map((f) => ({ path: f.path, destination: `LocalState/firmware/${f.name}` })));
     }
-    if (job.saves) transfers.push(...(await prepareSaves(job.saves, titleId, join(temporary, "saves"))).files);
-    for (const [i, mod] of (job.mods ?? []).entries())
-      transfers.push(...(await prepareMods(mod, titleId, join(temporary, `mods-${i}`))).files);
+    if (full && job.officialUi) {
+      if (!job.firmware) throw new PackError("inputInvalid");
+      const settings = join(temporary, "eden_settings.txt");
+      await writeFile(settings, "use_official_switch_interface=true\n");
+      transfers.push({ path: settings, destination: "LocalState/eden_settings.txt" });
+    }
+    // Saves and mods are per title, so only the single-game app takes them here.
+    if (!full && job.saves) transfers.push(...(await prepareSaves(job.saves, titleId, join(temporary, "saves"))).files);
+    if (!full)
+      for (const [i, mod] of (job.mods ?? []).entries())
+        transfers.push(...(await prepareMods(mod, titleId, join(temporary, `mods-${i}`))).files);
 
-    const full = job.mode === "full";
-    const name = full ? "NXbox" : validateName(job.name ?? filenameName(job.game));
+    const name = full ? "NXbox" : validateName(job.name ?? filenameName(job.games[0]!));
     emit({ step: "runtime" });
     const runtimeDir = join(temporary, "runtime");
-    const runtimeFiles = await stageRuntime(await downloadRuntime(await latestRuntime()), runtimeDir, full ? LIBRARY_ID : titleId, name);
-    const content = [await prepareContent(job.game, join(temporary, "content"), job.keys)];
+    const runtimeFiles = await stageRuntime(await downloadRuntime(await latestRuntime()), runtimeDir, titleId, name);
+    const content: string[] = [];
+    for (const [i, game] of job.games.entries()) {
+      emit({ step: "prepare", file: game });
+      content.push(await prepareContent(game, join(temporary, `content-${i}`), job.keys));
+    }
 
     if (job.target.kind === "export") {
       const out = join(job.target.out, name);
@@ -73,7 +89,14 @@ export async function runJob(job: Job, emit: Emit): Promise<void> {
       await mkdir(join(local, "games"), { recursive: true });
       await mkdir(join(local, "eden", "keys"), { recursive: true });
       await cp(job.keys, join(local, "eden", "keys", "prod.keys"));
-      await cp(content[0]!, join(local, "games", `base${content[0]!.slice(content[0]!.lastIndexOf("."))}`));
+      for (const [i, game] of content.entries()) {
+        const file = full ? basename(game) : `base${extname(game)}`;
+        await cp(game, join(local, "games", i === 0 || full ? file : `addon-${i}${extname(game)}`));
+      }
+      if (!full) {
+        await writeFile(join(local, "game.txt"), `games\\base${extname(content[0]!)}\n`);
+        await writeFile(join(local, "skip_library.txt"), "1\n");
+      }
       for (const t of transfers) {
         await mkdir(join(out, t.destination, ".."), { recursive: true });
         await cp(t.path, join(out, t.destination));
