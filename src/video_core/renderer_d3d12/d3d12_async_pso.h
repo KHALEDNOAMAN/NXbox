@@ -77,6 +77,16 @@ public:
         state->condition.notify_one();
         return true;
     }
+    /// Drops a prewarm that failed or was cancelled so the runtime can build the key itself.
+    bool ForgetFailedPrewarm(const Key& key) {
+        std::scoped_lock lock{state->mutex};
+        const auto it = state->entries.find(key);
+        if (it == state->entries.end() || !it->second.prewarmed ||
+            it->second.status != Status::Failed)
+            return false;
+        state->entries.erase(it);
+        return true;
+    }
     /// Blocks until `key` leaves Pending or `timeout` passes, then returns its entry.
     Entry WaitFor(const Key& key, Clock::duration timeout) {
         std::unique_lock lock{state->mutex};

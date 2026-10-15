@@ -32,8 +32,12 @@ class PsoPrewarmTests(unittest.TestCase):
             "NXBOX_D3D12_NO_PREWARM", (ROOT / "docs/d3d12-backend.md").read_text()
         )
         self.assertIn("FrameCount::PrewarmedPsoHits", source)
-        self.assertIn("!async->Lookup(request).prewarmed", source)
-        self.assertIn("!async->Lookup(async_key).prewarmed", source)
+        # A pending prewarm still gets the bounded first-use wait; a failed one is rebuilt.
+        self.assertNotIn(".prewarmed && pso_waited", source)
+        self.assertIn("ForgetFailedPrewarm(request)", source)
+        self.assertIn("ForgetFailedPrewarm(async_key)", source)
+        # Compute records use the same key as the runtime lookup.
+        self.assertEqual(source.count("key.state.sample_count = 0; // Same key as CurrentComputePipeline."), 2)
 
 
 if __name__ == "__main__":
