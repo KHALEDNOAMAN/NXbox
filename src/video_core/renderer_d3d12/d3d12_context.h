@@ -76,6 +76,7 @@ enum class FrameCount : size_t {
     PsoCompiles,
     Executes,
     PsoCacheMisses,
+    PrewarmedPsoHits,
     GuestPipelineMisses,
     NativeIndexDraws,
     ShaderTranslations,

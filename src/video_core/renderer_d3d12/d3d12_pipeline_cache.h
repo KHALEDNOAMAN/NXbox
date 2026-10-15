@@ -75,8 +75,12 @@ public:
     // Returns the pipeline for (state, stages), compiling HLSL->DXIL and creating the PSO on a
     // miss. `stages` must hold one entry per active stage.
     GraphicsPipeline& GetGraphics(const Pso::GraphicsPsoState& state, u32 d3d_topology,
-                                  std::span<const StageInput> stages);
-    ComputePipeline& GetCompute(const StageInput& stage);
+                                  std::span<const StageInput> stages,
+                                  const GraphicsPipelineKey* request = nullptr,
+                                  std::span<const u8> runtime_data = {});
+    ComputePipeline& GetCompute(const StageInput& stage,
+                                const GraphicsPipelineKey* request = nullptr,
+                                std::span<const u8> runtime_data = {});
 
     // Shared guest root signature, keyed by descriptor counts and CBV layout choice.
     ID3D12RootSignature* GetRootSignature(DescriptorCounts counts);
@@ -120,6 +124,8 @@ private:
     std::unique_ptr<AsyncCache> async;
     /// Requests that already spent their one bounded wait for an async PSO.
     std::unordered_set<u64> pso_waited;
+    std::unordered_set<GraphicsPipelineKey, GraphicsPipelineKeyHash> prewarmed_graphics;
+    std::unordered_set<u64> prewarmed_compute;
     std::recursive_mutex pipeline_mutex;
     Context& context;
     // Device capabilities are immutable for this cache's lifetime, including query failures.
