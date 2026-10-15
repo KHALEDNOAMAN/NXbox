@@ -20,7 +20,7 @@ int main(int argc, char** argv) {
     DiskCacheIdentity identity{1, 2, 3, 4, 5, 6, 7, 0x1122334455667788, 9};
     DiskPipelineRecord record{DiskRecordKind::Dxil, 0x0123456789abcdef, {0, 255, 1, 2}};
     const auto encoded = SerializeDiskRecord(identity, record);
-    assert(encoded.size() == 84 + record.payload.size());
+    assert(encoded.size() == 100 + record.payload.size());
     // Explicit little-endian wire bytes, including full-width keys/LUIDs.
     assert(encoded[12] == 1 && encoded[40] == 0x88 && encoded[47] == 0x11);
     assert(encoded[60] == 0xef && encoded[67] == 0x01 && encoded[68] == 4);
@@ -32,6 +32,15 @@ int main(int argc, char** argv) {
         auto item = record; item.kind = kind; if (kind == DiskRecordKind::Library) item.key = 0;
         assert(DeserializeDiskRecord(SerializeDiskRecord(identity, item), identity)->kind == kind);
     }
+    // Guest identity and draw metadata round-trip independently of the native PSO key.
+    for (auto kind : {DiskRecordKind::Graphics, DiskRecordKind::Compute}) {
+        DiskPipelineRecord pipeline{kind, record.key, record.payload, {1, 2, 3}, {4, 5}};
+        const auto restored = DeserializeDiskRecord(SerializeDiskRecord(identity, pipeline), identity);
+        assert(restored && restored->request_key == pipeline.request_key &&
+               restored->runtime_data == pipeline.runtime_data && restored->payload == pipeline.payload);
+    }
+    auto old_version = encoded; old_version[8] = 2;
+    assert(!DeserializeDiskRecord(old_version, identity));
     // Every truncated prefix, single-byte corruption, and trailing garbage is a miss.
     for (size_t n = 0; n < encoded.size(); ++n)
         assert(!DeserializeDiskRecord(std::span(encoded).first(n), identity));
@@ -105,7 +114,7 @@ int main(int argc, char** argv) {
         // Reject oversized files before allocating their declared payload.
         const auto oversized = title / "0000000000000004.dxil";
         std::ofstream(oversized).close();
-        std::filesystem::resize_file(oversized, (64ULL << 20) + 85);
+        std::filesystem::resize_file(oversized, (64ULL << 20) + 101);
         assert(!cache.FindDxil(4) && !std::filesystem::exists(oversized));
         // Ensure renamed files cannot serve the wrong shader key.
         std::filesystem::copy_file(title / "0123456789abcdef.dxil", title / "0000000000000003.dxil");

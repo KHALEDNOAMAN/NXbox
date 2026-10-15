@@ -32,6 +32,7 @@ public:
         Status status{Status::Pending};
         std::shared_ptr<Result> result;
         std::string error;
+        bool prewarmed{};
     };
     using Job = std::function<std::shared_ptr<Result>()>;
     using Clock = std::chrono::steady_clock;
@@ -64,11 +65,13 @@ public:
         std::scoped_lock lock{state->mutex};
         return !state->stopping && Admittable();
     }
-    bool Submit(const Key& key, Job job) {
+    bool Submit(const Key& key, Job job, bool prewarmed = false) {
         std::scoped_lock lock{state->mutex};
         if (state->stopping || !Admittable() || state->entries.contains(key))
             return false;
-        state->entries.emplace(key, Entry{});
+        Entry entry;
+        entry.prewarmed = prewarmed;
+        state->entries.emplace(key, std::move(entry));
         ++state->pending;
         state->queue.emplace_back(key, std::move(job));
         state->condition.notify_one();
@@ -196,6 +199,7 @@ private:
             item.second = {};
             {
                 std::scoped_lock lock{state.mutex};
+                result.prewarmed = state.entries.at(item.first).prewarmed;
                 state.entries.at(item.first) = std::move(result);
                 --state.pending;
                 state.busy_since[index].reset();

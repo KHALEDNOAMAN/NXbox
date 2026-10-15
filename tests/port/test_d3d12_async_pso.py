@@ -41,7 +41,8 @@ int main() {
         --running;
         return std::make_shared<int>(42);
     };
-    assert(cache.Submit(1, job));
+    assert(cache.Submit(1, job, true));
+    assert(cache.Lookup(1).prewarmed);
     assert(!cache.Submit(1, job));
     assert(cache.Submit(2, job));
     assert(!cache.CanSubmit());
@@ -53,6 +54,7 @@ int main() {
     while (cache.Lookup(1).status == Cache::Status::Pending ||
            cache.Lookup(2).status == Cache::Status::Pending) std::this_thread::yield();
     assert(*cache.Lookup(1).result == 42 && builds == 2 && maximum == 2);
+    assert(cache.Lookup(1).prewarmed && !cache.Lookup(2).prewarmed);
     assert(cache.Submit(3, []() -> std::shared_ptr<int> { throw std::runtime_error("negative"); }));
     while (cache.Lookup(3).status == Cache::Status::Pending) std::this_thread::yield();
     assert(cache.Lookup(3).status == Cache::Status::Failed);

@@ -40,6 +40,9 @@ struct DiskPipelineRecord {
     DiskRecordKind kind{};
     std::uint64_t key{};
     DiskBytes payload;
+    // Packed guest request identity and pointer-free draw/dispatch binding metadata.
+    DiskBytes request_key{};
+    DiskBytes runtime_data{};
 };
 
 // Std-only, little-endian, bounded, checksummed format. A miss includes stale,

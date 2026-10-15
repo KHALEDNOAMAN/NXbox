@@ -18,8 +18,9 @@
 namespace D3D12 {
 namespace {
 constexpr std::array<std::uint8_t, 8> Magic{'N', 'X', 'D', '3', 'D', '1', '2', 'C'};
-constexpr std::uint32_t FormatVersion = 2;
-constexpr std::size_t HeaderSize = 84;
+constexpr std::uint32_t FormatVersion = 3;
+constexpr std::size_t HeaderSize = 100;
+constexpr std::size_t MetadataLimit = 64 << 10;
 std::uint64_t PayloadLimit(DiskRecordKind kind) {
     switch (kind) {
     case DiskRecordKind::Dxil:
@@ -76,6 +77,9 @@ std::string Filename(DiskRecordKind kind, std::uint64_t key) {
 
 DiskBytes SerializeDiskRecord(const DiskCacheIdentity& identity, const DiskPipelineRecord& record) {
     if (record.payload.empty() || record.payload.size() > PayloadLimit(record.kind) ||
+        record.request_key.size() > MetadataLimit || record.runtime_data.size() > MetadataLimit ||
+        ((record.kind != DiskRecordKind::Graphics && record.kind != DiskRecordKind::Compute) &&
+         (!record.request_key.empty() || !record.runtime_data.empty())) ||
         (record.kind == DiskRecordKind::Library && record.key != 0)) {
         throw std::invalid_argument("Invalid D3D12 disk record");
     }
@@ -90,7 +94,11 @@ DiskBytes SerializeDiskRecord(const DiskCacheIdentity& identity, const DiskPipel
     Put(bytes, static_cast<std::uint32_t>(record.kind), 4);
     Put(bytes, record.key, 8);
     Put(bytes, record.payload.size(), 8);
+    Put(bytes, record.request_key.size(), 8);
+    Put(bytes, record.runtime_data.size(), 8);
     bytes.insert(bytes.end(), record.payload.begin(), record.payload.end());
+    bytes.insert(bytes.end(), record.request_key.begin(), record.request_key.end());
+    bytes.insert(bytes.end(), record.runtime_data.begin(), record.runtime_data.end());
     Put(bytes, Checksum(bytes), 8);
     return bytes;
 }
@@ -115,13 +123,23 @@ std::optional<DiskPipelineRecord> DeserializeDiskRecord(std::span<const std::uin
     record.kind = static_cast<DiskRecordKind>(Get(bytes, offset, 4));
     record.key = Get(bytes, offset, 8);
     const auto size = Get(bytes, offset, 8);
-    if (!size || size > PayloadLimit(record.kind) || size != bytes.size() - HeaderSize ||
+    const auto request_size = Get(bytes, offset, 8);
+    const auto runtime_size = Get(bytes, offset, 8);
+    if (!size || size > PayloadLimit(record.kind) || request_size > MetadataLimit ||
+        runtime_size > MetadataLimit ||
+        ((record.kind != DiskRecordKind::Graphics && record.kind != DiskRecordKind::Compute) &&
+         (request_size != 0 || runtime_size != 0)) ||
+        size + request_size + runtime_size != bytes.size() - HeaderSize ||
         (record.kind == DiskRecordKind::Library && record.key != 0))
         return {};
     std::size_t checksum_offset = bytes.size() - 8;
     if (Get(bytes, checksum_offset, 8) != Checksum(bytes.first(bytes.size() - 8)))
         return {};
-    record.payload.assign(bytes.begin() + offset, bytes.end() - 8);
+    record.payload.assign(bytes.begin() + offset, bytes.begin() + offset + size);
+    offset += static_cast<std::size_t>(size);
+    record.request_key.assign(bytes.begin() + offset, bytes.begin() + offset + request_size);
+    offset += static_cast<std::size_t>(request_size);
+    record.runtime_data.assign(bytes.begin() + offset, bytes.end() - 8);
     return record;
 }
 
@@ -149,7 +167,10 @@ struct DiskPipelineCache::Impl {
                            : extension == ".library" ? PayloadLimit(DiskRecordKind::Library)
                                                      : PayloadLimit(DiskRecordKind::Graphics);
         if (size < static_cast<std::streamoff>(HeaderSize) ||
-            size > static_cast<std::streamoff>(HeaderSize + limit)) {
+            size > static_cast<std::streamoff>(
+                       HeaderSize + limit +
+                       ((extension == ".graphics" || extension == ".compute") ? 2 * MetadataLimit
+                                                                              : 0))) {
             file.close();
             std::error_code error;
             std::filesystem::remove(path, error);

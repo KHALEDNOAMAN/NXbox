@@ -266,6 +266,7 @@ change emulation behavior and are intended only to isolate device removal:
 | Variable | Effect |
 | --- | --- |
 | `NXBOX_D3D12_PSO_LIBRARY` | Opt in to native pipeline libraries on Xbox/UWP. Disabled by default because even an empty library removes the Xbox device; DXIL disk caching remains active. |
+| `NXBOX_D3D12_NO_PREWARM` | Set to `1` to disable background disk-recipe PSO prewarming. By default async workers rebuild cached requests at lowest priority; ready results share the runtime cache. |
 | `NXBOX_D3D12_NO_PSO_LIBRARY` | Skip native pipeline-library creation/load/store/serialization; keep direct PSOs and validated DXIL/recipe caching. |
 | `NXBOX_D3D12_NO_GPU_ASTC` | Disable accelerated ASTC uploads and the ASTC helper PSO; use the CPU conversion path. |
 | `NXBOX_D3D12_NO_COMPUTE` | Skip guest compute dispatches; retain helper compute and GPU work accounting. |
@@ -425,14 +426,26 @@ DXC and native PSO creation. Active graphics stages share the captured TIC table
 The requesting thread polls a mutex-protected result map and skips pending work;
 `draws_skipped_pending_pso` and `dispatches_skipped_pending_pso` expose this cost.
 Failed requests are negatively cached until a title reload. Shutdown cancels
-queued jobs, joins active driver calls, and retires GPU references before releasing
-results. A driver call already running cannot be safely interrupted.
+queued jobs, joins idle workers, detaches busy workers, and retires GPU references
+before releasing results. A driver call already running cannot be safely interrupted;
+detached jobs retain their inputs and disk-cache lifetime.
 
-Async mode lazily reuses disk blobs instead of replaying synchronous PSO recipes
-at load time; recipes do not carry the guest request/runtime metadata needed to
-publish ready guest pipelines. Worker compilers are thread-local. Frame CPU phases
-still describe the GPU thread, so async translation/DXC CPU time does not appear
-there; `pso_compiles` counts completed async results when first published.
+Async mode prewarms disk recipes in the background on the existing lowest-priority
+workers without retaining the loading UI callback. Record format 3 (identity schema 6,
+recipe version 4) adds length-delimited guest request keys and pointer-free resource,
+primitive and stream-output metadata; older records are discarded. The recipe's
+fixed-state/stage/source layout is otherwise unchanged. Records have no usage timestamp,
+so replay keeps filename order. Admission uses the runtime cache's capacity and key
+insertion: a foreground request shares an in-progress prewarm instead of compiling
+again or waiting on it. Requests replay has not reached retain the normal first-use
+wait. Known stalled requests are skipped; loading cancellation and shutdown stop replay.
+
+`NXBOX_D3D12_NO_PREWARM=1` disables replay. Start diagnostics report the record count;
+`D3D12_PSO_PREWARM built=N skipped=N failed=N ms=N` reports completion. Frame profiles
+count runtime lookups of ready prewarmed pipelines as `prewarmed_pso_hits`, including
+subsequent guest-map/last-request hits. Worker compilers are thread-local. Frame CPU
+phases still describe the GPU thread, so async translation/DXC CPU time does not appear
+there; `pso_compiles` counts completed foreground async results when first published.
 
 Native pipeline libraries remain disabled on Xbox: earlier console evidence showed
 that even creating an empty library removed the device. Per-pipeline persistence

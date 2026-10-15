@@ -413,6 +413,7 @@ void FrameProfile::EndFrame(bool presented) {
                                       "pso_compiles",
                                       "ExecuteCommandLists",
                                       "pso_cache_misses",
+                                      "prewarmed_pso_hits",
                                       "guest_pipeline_misses",
                                       "native_index_draws",
                                       "shader_translations",
