@@ -361,6 +361,7 @@ public:
     void Count(FrameCount counter, u64 amount = 1);
     // Diagnostic: histogram of transition barriers by before/after state and resource kind.
     void NoteTransition(u32 before, u32 after, bool buffer);
+    void NoteWait(std::string_view site, u64 wall);
     void EndFrame(bool presented = true);
     std::function<std::string()> guest_visibility;
     void BindRecordingThread();
@@ -375,6 +376,7 @@ private:
     FrameTiming timing;
     std::array<u64, static_cast<size_t>(FrameCount::Count)> counts{};
     std::unordered_map<u64, u64> transitions;
+    std::unordered_map<std::string_view, std::pair<u64, u64>> waits;
     u64 initial_cpu{}, start_wall{}, fence_wall{}, frames{};
 };
 
@@ -406,10 +408,10 @@ public:
     void Finish(FrameCount reason = FrameCount::ForcedSubmitOther);
     void ReportFailure(const std::exception& error) noexcept;
     void LogInfoQueue() noexcept;
-    void Wait(u64 tick);
+    void Wait(u64 tick, std::string_view site = "other");
     bool IsFree(u64 tick) const;
     // Completion thread: never submit or touch command recording state.
-    void WaitSubmitted(u64 tick);
+    void WaitSubmitted(u64 tick, std::string_view site = "other");
     void Collect();
     u64 CurrentTick() const {
         return submitted + 1;

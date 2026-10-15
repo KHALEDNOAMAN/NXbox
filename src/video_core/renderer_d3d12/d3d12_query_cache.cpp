@@ -160,7 +160,7 @@ struct QueryCacheRuntimeImpl {
         bank = (bank + 1) % BankCount;
         count = 0;
         if (bank_count[bank]) {
-            context.Wait(bank_tick[bank]);
+            context.Wait(bank_tick[bank], "query_bank");
             Consume(bank, bank_count[bank]);
             bank_count[bank] = 0;
         }

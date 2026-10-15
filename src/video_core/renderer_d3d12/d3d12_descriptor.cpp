@@ -437,7 +437,7 @@ DescriptorTable D3D12DescriptorAllocator::Allocate(Ring& ring, u32 count) {
         if (*oldest >= context.CurrentTick())
             context.Submit(FrameCount::ForcedSubmitDescriptorExhaustion);
         else
-            context.Wait(*oldest);
+            context.Wait(*oldest, "descriptor");
     }
 }
 

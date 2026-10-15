@@ -58,7 +58,7 @@ public:
         return context.IsFree(tick);
     }
     void Wait(u64 tick) {
-        context.Wait(tick);
+        context.Wait(tick, "buffer_write");
     }
     void Finish() {
         context.Finish(FrameCount::ForcedSubmitBufferDownload);

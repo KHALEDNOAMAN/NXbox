@@ -214,6 +214,7 @@ struct FrameProfile {
     u64 frames=0,fence_wall=0,start_wall=0,initial_cpu=0;
     std::atomic<u64> gpu_busy{};
     std::unordered_map<u64,u64> transitions;
+    std::unordered_map<std::string_view,std::pair<u64,u64>> waits;
     std::function<std::string()> guest_visibility;
     void BindRecordingThread() {}
     void Switch(int) {}

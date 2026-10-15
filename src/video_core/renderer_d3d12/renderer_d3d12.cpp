@@ -238,7 +238,7 @@ struct RendererD3D12::Impl {
         for (const auto& layer : layers)
             textures.push_back(rasterizer.FramebufferTexture(layer));
         if (index < BufferCount)
-            context.WaitSubmitted(present_ticks[index]);
+            context.WaitSubmitted(present_ticks[index], "present");
         context.MarkWork(layers.empty() ? "init present clear" : "frame present clear/compositor");
         auto* commands = context.Commands();
         context.Transition(render_target, D3D12_RESOURCE_STATE_RENDER_TARGET);

@@ -336,6 +336,13 @@ void FrameProfile::NoteTransition(u32 before, u32 after, bool buffer) {
     if (enabled && OnOwner())
         ++transitions[(u64{buffer} << 63) | (u64{before} << 32) | after];
 }
+void FrameProfile::NoteWait(std::string_view site, u64 wall) {
+    if (enabled && OnOwner()) {
+        auto& entry = waits[site];
+        ++entry.first;
+        entry.second += wall;
+    }
+}
 void FrameProfile::EndFrame(bool presented) {
     if (!enabled)
         return;
@@ -481,6 +488,10 @@ void FrameProfile::EndFrame(bool presented) {
             line += fmt::format("{}{:#x}>{:#x}:{}", top[i].first >> 63 ? "b" : "t",
                                 (top[i].first >> 32) & 0x7fffffff, top[i].first & 0xffffffff,
                                 top[i].second) + ",";
+        line += " waits_top=";
+        for (const auto& [site, entry] : waits)
+            line += fmt::format("{}:{}:{:.3f},", site, entry.first,
+                                static_cast<double>(entry.second) / 10000.0);
         if (guest_visibility)
             line += guest_visibility();
         Diagnostic(line);
@@ -490,6 +501,7 @@ void FrameProfile::EndFrame(bool presented) {
     timing.cpu.fill(0);
     counts.fill(0);
     transitions.clear();
+    waits.clear();
     frames = fence_wall = 0;
     initial_cpu = ProfileCpuTime();
     start_wall = ProfileWallTime();
@@ -654,17 +666,18 @@ bool Context::IsFree(u64 tick) const {
     }
     return completed >= tick;
 }
-void Context::Wait(u64 tick) {
+void Context::Wait(u64 tick, std::string_view site) {
     if (tick > submitted) {
         if (tick != CurrentTick())
             throw std::invalid_argument("D3D12 future fence");
         Submit(FrameCount::ForcedSubmitFenceWait);
     }
-    WaitSubmitted(tick);
+    WaitSubmitted(tick, site);
     LogInfoQueue();
 }
-void Context::WaitSubmitted(u64 tick) {
+void Context::WaitSubmitted(u64 tick, std::string_view site) {
     if (!IsFree(tick)) {
+        const u64 wait_start = ProfileWallTime();
         const FrameProfile::Scope frame_wait{profile, FramePhase::FenceWait};
         // Each waiter owns its event; GPU and fencing threads may wait concurrently.
         const HANDLE wait_event = CreateEventExW(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
@@ -691,6 +704,7 @@ void Context::WaitSubmitted(u64 tick) {
                   "WaitForSingleObjectEx", device.Get());
             throw std::runtime_error("D3D12 fence wait failed/timed out");
         }
+        profile.NoteWait(site, ProfileWallTime() - wait_start);
     }
     Check(device->GetDeviceRemovedReason(), "device removed after waiting", device.Get());
     CompleteThrough(tick);
@@ -739,7 +753,7 @@ ID3D12GraphicsCommandList* Context::Commands() {
     if (!recording) {
         Collect();
         auto& slot = allocators[allocator_index];
-        WaitSubmitted(slot.tick);
+        WaitSubmitted(slot.tick, "allocator");
         // Created before Reset: CreateResource may submit under memory pressure.
         if (profile.Enabled() && !gpu_time_heap) {
             D3D12_QUERY_HEAP_DESC desc{};
@@ -861,7 +875,7 @@ u64 Context::Submit(FrameCount reason) {
     return submitted;
 }
 void Context::Finish(FrameCount reason) {
-    Wait(Submit(reason));
+    Wait(Submit(reason), "finish");
 }
 void Context::Retain(const ResourcePtr& resource) {
     Commands();

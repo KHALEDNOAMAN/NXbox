@@ -83,6 +83,7 @@ int main() {
 #include <cassert>
 #include <cstdint>
 #include <stdexcept>
+#include <string_view>
 #include "video_core/renderer_d3d12/d3d12_ring_allocator.h"
 using u32 = std::uint32_t;
 using u64 = std::uint64_t;
@@ -102,7 +103,7 @@ struct FakeContext {
     u64 CurrentTick() const { return submitted + 1; }
     bool IsFree(u64 tick) const { return tick <= submitted; }
     void Submit(FrameCount reason) { assert(reason == FrameCount::ForcedSubmitDescriptorExhaustion); if (recording) { ++submitted; recording = false; } }
-    void Wait(u64 tick) { assert(tick <= submitted); }
+    void Wait(u64 tick, std::string_view = {}) { assert(tick <= submitted); }
 };
 class D3D12DescriptorAllocator {
 public:
