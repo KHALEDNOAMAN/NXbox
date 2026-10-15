@@ -1273,7 +1273,10 @@ IGraphicsPipeline* PipelineCache::CurrentGraphicsPipeline(
                 StoreGuestGraphics(request, nullptr);
                 return nullptr;
             }
-            const auto entry = async->Lookup(request);
+            auto entry = async->Lookup(request);
+            if (entry.status == AsyncCache::Status::Failed && entry.prewarmed &&
+                async->ForgetFailedPrewarm(request))
+                entry = async->Lookup(request);
             if (entry.status == AsyncCache::Status::Ready) {
                 if (entry.prewarmed) {
                     prewarmed_graphics.insert(request);
@@ -1322,7 +1325,7 @@ IGraphicsPipeline* PipelineCache::CurrentGraphicsPipeline(
             }
             // Skipping a draw loses it for good when the game renders it once (SM3DW
             // bakes its ambient light at level load), so give each PSO one bounded wait.
-            if (!async->Lookup(request).prewarmed && pso_waited.insert(request_hash).second) {
+            if (pso_waited.insert(request_hash).second) {
                 const auto settled = async->WaitFor(request, PsoWaitBudget());
                 if (settled.status == AsyncCache::Status::Ready) {
                     StoreGuestGraphics(request, settled.result->graphics.get());
@@ -1511,7 +1514,10 @@ ComputePipeline* PipelineCache::CurrentComputePipeline() try {
                 guest_compute.emplace(request, nullptr);
                 return nullptr;
             }
-            const auto entry = async->Lookup(async_key);
+            auto entry = async->Lookup(async_key);
+            if (entry.status == AsyncCache::Status::Failed && entry.prewarmed &&
+                async->ForgetFailedPrewarm(async_key))
+                entry = async->Lookup(async_key);
             if (entry.status == AsyncCache::Status::Ready) {
                 if (entry.prewarmed) {
                     prewarmed_compute.insert(request);
@@ -1593,6 +1599,7 @@ ComputePipeline* PipelineCache::CurrentComputePipeline() try {
                     if (disk_cache) {
                         GraphicsPipelineKey key{};
                         key.stage_hashes[0] = request;
+                        key.state.sample_count = 0; // Same key as CurrentComputePipeline.
                         DiskBytes metadata;
                         WriteInfo(metadata, program.info);
                         disk_cache->RememberPipeline({DiskRecordKind::Compute, native_key, recipe,
@@ -1603,7 +1610,7 @@ ComputePipeline* PipelineCache::CurrentComputePipeline() try {
                 });
                 context.Profile().Count(FrameCount::GuestPipelineMisses);
             }
-            if (!async->Lookup(async_key).prewarmed && pso_waited.insert(request).second) {
+            if (pso_waited.insert(request).second) {
                 const auto settled = async->WaitFor(async_key, PsoWaitBudget());
                 if (settled.status == AsyncCache::Status::Ready) {
                     guest_compute.emplace(request, settled.result->compute.get());
@@ -1640,6 +1647,7 @@ ComputePipeline* PipelineCache::CurrentComputePipeline() try {
         const FrameProfile::Scope profile_build{context.Profile(), FramePhase::PipelineLookup};
         GraphicsPipelineKey key{};
         key.stage_hashes[0] = request;
+        key.state.sample_count = 0; // Same key as CurrentComputePipeline.
         DiskBytes metadata;
         WriteInfo(metadata, program.info);
         auto& pipeline = GetCompute({Shader::Stage::Compute,
@@ -1751,7 +1759,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
                         }
                     }
                     // Admission and foreground submission use the same atomic key insertion.
-                    // Keep at most one disk record's inputs queued, within normal pool capacity.
+                    // A full pool makes this coordinator retry, never the loading/GPU thread.
                     for (;;) {
                         if (stop.stop_requested())
                             return false;
@@ -1778,19 +1786,9 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
                         // Wait only on this disk coordinator, never on the loading/GPU thread.
                         std::this_thread::sleep_for(std::chrono::milliseconds{10});
                     }
-                    while (!stop.stop_requested()) {
-                        const auto entry = async->WaitFor(request, std::chrono::milliseconds{10});
-                        if (entry.status == AsyncCache::Status::Ready)
-                            return true;
-                        if (entry.status == AsyncCache::Status::Failed)
-                            return false;
-                        {
-                            std::scoped_lock guard{pipeline_mutex};
-                            if (CheckStalled(request, hash))
-                                return false;
-                        }
-                    }
-                    return false;
+                    // Do not wait for the build: the pool's admission limit keeps the workers
+                    // busy in parallel, and runtime lookups pick each PSO up when it is ready.
+                    return true;
                 }
                 const auto decoded = ReadRecipe(record);
                 const auto& stages = decoded.stages;
