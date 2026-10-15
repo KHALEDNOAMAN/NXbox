@@ -778,6 +778,10 @@ void RunGame(MesaWindow& window, const std::string& bundled_path, const std::ato
     Settings::values.accelerate_astc.SetValue(Settings::AstcDecodeMode::Cpu);
     Settings::values.nvdec_emulation.SetValue(Settings::NvdecEmulation::Cpu);
     Settings::values.resolution_setup.SetValue(Settings::ResolutionSetup::Res1X);
+    // The firmware error applet never draws on the Xbox: P5R opens it from the network prompt,
+    // the game stops presenting and memory climbs past the 5 GiB limit. The HLE applet logs the
+    // error and returns to the game.
+    Settings::values.error_applet_mode.SetValue(Settings::AppletMode::HLE);
     ApplyEdenSettingsFile();
     // Mods the player turned off in the mod store go into Eden's disabled add-ons list.
     Ui::ApplyDisabledMods(std::filesystem::path(winrt::to_string(
