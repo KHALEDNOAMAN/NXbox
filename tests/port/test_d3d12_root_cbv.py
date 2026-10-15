@@ -23,7 +23,7 @@ class D3D12RootCbv(unittest.TestCase):
         self.assertIn("register(b{}, space0)", hlsl)
         self.assertIn("bindings.uniform_buffer++", hlsl)
         pipelines = source("d3d12_pipeline_cache.cpp")
-        self.assertEqual(pipelines.count("->SetRootCbvs("), 4)
+        self.assertEqual(pipelines.count("->SetRootCbvs("), 6)  # Runtime and prewarm builds.
         self.assertIn("CreateRootSignature(device, total, UseRootCbvs(total.cbv))", pipelines)
         self.assertIn("CreateRootSignature(context.Device(), counts, key.second)", pipelines)
 
@@ -79,12 +79,12 @@ class D3D12RootCbv(unittest.TestCase):
     def test_cache_layout_identity_and_version(self):
         pipelines = source("d3d12_pipeline_cache.cpp")
         self.assertIn("std::pair{counts, UseRootCbvs(counts.cbv)}", pipelines)
-        self.assertIn("Append32(bytes, 3)", pipelines)
+        self.assertIn("Append32(bytes, 4)", pipelines)
         self.assertIn("Append32(bytes, UseRootCbvs(cbv_count) ? 1u : 0u)", pipelines)
         self.assertIn("root_cbvs != UseRootCbvs(cbv_count)", pipelines)
         self.assertIn("StageBindingAbi = 10", pipelines)
-        self.assertIn("QueryIdentity(context.Device(), {4, 2, 5})", pipelines)
-        self.assertIn("FormatVersion = 2", source("d3d12_disk_pipeline_cache.cpp"))
+        self.assertIn("QueryIdentity(context.Device(), {4, 2, 6})", pipelines)
+        self.assertIn("FormatVersion = 3", source("d3d12_disk_pipeline_cache.cpp"))
         self.assertIn("Pso::HashBytes(recipe.data(), recipe.size(), request)", pipelines)
 
 
