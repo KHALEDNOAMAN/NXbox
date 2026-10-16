@@ -358,3 +358,13 @@
      L"Avoids stutters and a black screen at startup. Press B on the loading screen to skip."},
     {Text::LaunchShaderPreload, L"Loading shaders for a smoother experience"},
     {Text::LaunchShaderSkip, L"B Skip (the game may stutter at first)"},
+
+    {Text::ButtonLayoutTitle, L"Button layout"},
+    {Text::ButtonLayoutName, L"Xbox (by name)"},
+    {Text::ButtonLayoutPosition, L"Classic Nintendo (by position)"},
+    {Text::ButtonLayoutNameCaption, L"Buttons do what their label says."},
+    {Text::ButtonLayoutPositionCaption, L"Same spots as on a Switch: confirm with the right button."},
+    {Text::ButtonLayoutHint, L"Applies on the next game launch. A still confirms in NXbox."},
+    {Text::ButtonLayoutSaveFailed, L"Could not save. Press A to try again."},
+    {Text::ButtonLayoutNameShort, L"Xbox (by name)"},
+    {Text::ButtonLayoutPositionShort, L"Nintendo (by position)"},

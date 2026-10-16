@@ -7,6 +7,7 @@
 #include "core/file_sys/system_archive/data/font_korean.h"
 #include "core/file_sys/system_archive/data/font_nintendo_extended.h"
 #include "core/file_sys/system_archive/data/font_nintendo_extended_xbox.h"
+#include "core/file_sys/system_archive/data/font_nintendo_extended_xbox_position.h"
 #include "core/file_sys/system_archive/data/font_standard.h"
 #include "core/file_sys/system_archive/shared_font.h"
 #include "core/file_sys/vfs/vfs_vector.h"
@@ -44,6 +45,17 @@ VirtualDir FontNintendoExtensionXbox() {
         std::vector<VirtualFile>{
             PackBFTTF(SharedFontData::FONT_NINTENDO_EXTENDED_XBOX, "nintendo_ext_003.bfttf"),
             PackBFTTF(SharedFontData::FONT_NINTENDO_EXTENDED_XBOX, "nintendo_ext2_003.bfttf"),
+        },
+        std::vector<VirtualDir>{});
+}
+
+VirtualDir FontNintendoExtensionXboxPosition() {
+    return std::make_shared<VectorVfsDirectory>(
+        std::vector<VirtualFile>{
+            PackBFTTF(SharedFontData::FONT_NINTENDO_EXTENDED_XBOX_POSITION,
+                      "nintendo_ext_003.bfttf"),
+            PackBFTTF(SharedFontData::FONT_NINTENDO_EXTENDED_XBOX_POSITION,
+                      "nintendo_ext2_003.bfttf"),
         },
         std::vector<VirtualDir>{});
 }

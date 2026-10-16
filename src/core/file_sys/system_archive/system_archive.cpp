@@ -94,6 +94,10 @@ constexpr inline SystemArchiveDescriptor GetSystemArchive(u64 title_id) {
     }
 }
 
+VirtualFile SynthesizeXboxPositionFontArchive() {
+    return CreateRomFS(FontNintendoExtensionXboxPosition());
+}
+
 VirtualFile SynthesizeXboxFontArchive() {
     return CreateRomFS(FontNintendoExtensionXbox());
 }

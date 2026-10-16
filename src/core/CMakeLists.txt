@@ -157,6 +157,8 @@ add_library(core STATIC
     file_sys/system_archive/data/font_nintendo_extended.h
     file_sys/system_archive/data/font_nintendo_extended_xbox.cpp
     file_sys/system_archive/data/font_nintendo_extended_xbox.h
+    file_sys/system_archive/data/font_nintendo_extended_xbox_position.cpp
+    file_sys/system_archive/data/font_nintendo_extended_xbox_position.h
     file_sys/system_archive/data/font_standard.cpp
     file_sys/system_archive/data/font_standard.h
     file_sys/system_archive/mii_model.cpp

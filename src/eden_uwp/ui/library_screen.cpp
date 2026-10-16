@@ -225,6 +225,7 @@ public:
         renderer_backend_ = RendererSettings::Read(local_state_);
         shader_preload_ = RendererSettings::ReadShaderPreload(local_state_);
         xbox_button_icons_ = RendererSettings::ReadXboxButtonIcons(local_state_);
+        button_layout_ = RendererSettings::ReadButtonLayout(local_state_);
         std::ifstream resolution_settings(local_state_ / "eden_settings.txt");
         settings_resolution_ = TitleSettings::ReadResolution(resolution_settings);
         if (return_home_) {
@@ -798,6 +799,15 @@ private:
         if (SelectedSetting() == Setting::Renderer) {
             renderer_choice_ = renderer_backend_ == RendererSettings::kOpenGL ? 1 : 0;
             renderer_open_ = true;
+            return;
+        }
+        if (SelectedSetting() == Setting::ButtonLayout) {
+            const auto next =
+                button_layout_ == ButtonLayout::Name ? ButtonLayout::Position : ButtonLayout::Name;
+            if (RendererSettings::SaveButtonLayout(local_state_, next))
+                button_layout_ = next;
+            else
+                Toast(Tr(Text::ButtonLayoutSaveFailed));
             return;
         }
         if (SelectedSetting() == Setting::XboxButtonIcons) {
@@ -1598,8 +1608,7 @@ private:
              {Tr(Text::SystemMenuTitle), Tr(Text::SystemMenuBoot), Theme::kTextSecondary,
               Tr(Text::SystemMenuHint)},
              {Tr(Text::OfficialSwitchInterface),
-              Tr(official_interface_ ? Text::NextendoOn : Text::NextendoOff),
-              Theme::kTextSecondary,
+              Tr(official_interface_ ? Text::NextendoOn : Text::NextendoOff), Theme::kTextSecondary,
               Tr(firmware_status_.home_available ? Text::SystemMenuHint : Text::RequiresFirmware)},
              {Tr(Text::ProfilePicture), Tr(Text::HintSelect), Theme::kTextSecondary,
               Tr(Text::ProfilePictureHint)},
@@ -1620,12 +1629,17 @@ private:
              {Tr(Text::XboxButtonIconsTitle),
               Tr(xbox_button_icons_ ? Text::NextendoOn : Text::NextendoOff), Theme::kTextSecondary,
               Tr(Text::XboxButtonIconsHint)},
+             {Tr(Text::ButtonLayoutTitle),
+              Tr(button_layout_ == ButtonLayout::Position ? Text::ButtonLayoutPositionShort
+                                                          : Text::ButtonLayoutNameShort),
+              Theme::kTextSecondary, Tr(Text::ButtonLayoutHint)},
              {Tr(Text::ResolutionTitle), Tr(resolution_label), Theme::kTextSecondary,
               Tr(Text::ResolutionMemoryHint)},
              {Tr(Text::SettingsVersion), build.c_str(), Theme::kTextSecondary,
               Tr(Text::SettingsBuildHint)}}};
         constexpr float kRowTop = 340.0f;
-        constexpr float kRowPitch = 128.0f;
+        const float kRowPitch =
+            kSettingsCategories[Idx(settings_category_)].count > 5 ? 106.0f : 128.0f;
         constexpr float kRight = kCanvasWidth - kMargin;
         constexpr float kRowsLeft = 560.0f;
         for (std::size_t category = 0; category < kSettingsCategories.size(); ++category) {
@@ -1654,7 +1668,7 @@ private:
             const Row& item =
                 renderer_open_ ? renderer_rows[Idx(i)] : rows[static_cast<std::size_t>(setting)];
             const float y = kRowTop + static_cast<float>(i) * kRowPitch;
-            const auto rect = RectF(kRowsLeft, y, kRight, y + 112.0f);
+            const auto rect = RectF(kRowsLeft, y, kRight, y + kRowPitch - 16.0f);
             const bool disabled = renderer_open_ ? !RendererChoiceEnabled(i)
                                                  : setting == Setting::Version ||
                                                        ((setting == Setting::OfficialInterface ||
@@ -1663,7 +1677,7 @@ private:
             const bool focused = layer_ == Layer::Rail && settings_rows_focused_ &&
                                  (renderer_open_ ? renderer_choice_ : settings_row_) == i;
             if (focused)
-                renderer_.FillRounded(rect, 56.0f, Theme::kSurfaceStrong);
+                renderer_.FillRounded(rect, (kRowPitch - 16.0f) / 2.0f, Theme::kSurfaceStrong);
             renderer_.DrawString(
                 item.name, Font::RowTitle,
                 RectF(kRowsLeft + 28.0f, y + 12.0f,
@@ -1673,11 +1687,12 @@ private:
                                  RectF(kRowsLeft + 630.0f, y + 12.0f, kRight - 28.0f, y + 54.0f),
                                  disabled ? Theme::kTextTertiary : item.state_color, HAlign::Right,
                                  VAlign::Middle);
-            renderer_.DrawString(item.hint, Font::RowSub,
-                                 RectF(kRowsLeft + 28.0f, y + 64.0f, kRight - 28.0f, y + 106.0f),
-                                 Theme::kTextSecondary);
+            renderer_.DrawString(
+                item.hint, Font::RowSub,
+                RectF(kRowsLeft + 28.0f, y + 54.0f, kRight - 28.0f, y + kRowPitch - 20.0f),
+                Theme::kTextSecondary);
             if (focused)
-                DrawRing(renderer_, rect, 56.0f + kRingGap, 1.0f);
+                DrawRing(renderer_, rect, (kRowPitch - 16.0f) / 2.0f + kRingGap, 1.0f);
         }
     }
 
@@ -1803,6 +1818,7 @@ private:
     bool resolution_global_ = false;
     bool shader_preload_ = true;
     bool xbox_button_icons_ = true;
+    ButtonLayout button_layout_ = ButtonLayout::Name;
     int renderer_backend_ = RendererSettings::kDirectX12;
     int settings_resolution_ = TitleSettings::kDefaultResolution;
     SyncAccount sync_account_ = SyncAccount::SignedOut;
@@ -1848,9 +1864,8 @@ std::string RunLibrary(const winrt::Windows::UI::Core::CoreWindow& window, Chose
         Renderer renderer;
         renderer.Initialize(window);
         bool window_closed = false;
-        if (!IsSetupDone(local_state)) {
-            // The first run asks once whether to sync saves; the answer is remembered in
-            // setup_done.txt, and Settings has the same switch.
+        if (!IsSetupDone(local_state) || !RendererSettings::HasButtonLayout(local_state)) {
+            // Existing installs only see the missing layout choice; sync is not repeated.
             Input setup_input(window);
             window_closed = RunFirstRunSetup(renderer, window, setup_input, local_state);
         }

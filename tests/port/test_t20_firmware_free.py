@@ -93,6 +93,7 @@ VirtualFile PatchIPS(const VirtualFile&, const VirtualFile&) { std::abort(); }
 namespace FileSys::SystemArchive {
 VirtualDir FontNintendoExtension() { return nullptr; }
 VirtualDir FontNintendoExtensionXbox() { return nullptr; }
+VirtualDir FontNintendoExtensionXboxPosition() { return nullptr; }
 VirtualDir FontStandard() { return nullptr; }
 VirtualDir FontKorean() { return nullptr; }
 VirtualDir FontChineseTraditional() { return nullptr; }

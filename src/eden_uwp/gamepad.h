@@ -14,6 +14,7 @@
 
 #include "common/settings.h"
 #include "eden_uwp/applet_boot.h"
+#include "eden_uwp/button_layout.h"
 #include "eden_uwp/diagnostic.h"
 #include "eden_uwp/home_combo.h"
 #include "eden_uwp/input_script.h"
@@ -98,12 +99,19 @@ public:
         }
     }
 
+    void SetButtonLayout(ButtonLayout layout) {
+        button_layout = layout;
+    }
+
     void Poll(Core::HID::EmulatedController& controller, Core::HID::NpadStyleTag supported = {},
               bool suppress_guest = false) {
         using namespace winrt::Windows::Gaming::Input;
         const auto devices = Gamepad::Gamepads();
         GamepadReading reading{};
-        const auto keys = key_state.load(std::memory_order_acquire) | ScriptedKeys();
+        // Remote keys describe physical Xbox buttons; scripts describe guest Switch buttons.
+        const auto physical_keys = key_state.load(std::memory_order_acquire);
+        const auto scripted_keys = ScriptedKeys();
+        const auto keys = physical_keys | scripted_keys;
         if (devices.Size() != 0) {
             reading = devices.GetAt(0).GetCurrentReading();
         }
@@ -135,7 +143,7 @@ public:
         if (!controller.IsConnected()) {
             controller.Connect();
         }
-        // Preserve button labels initially; a positional mapping can be selected by the launcher.
+        // Remap only guest input; frontend controls retain Xbox conventions.
         constexpr std::array mappings{GamepadButtons::A,
                                       GamepadButtons::B,
                                       GamepadButtons::X,
@@ -153,12 +161,14 @@ public:
                                       GamepadButtons::DPadRight,
                                       GamepadButtons::DPadDown};
         for (int i = 0; i < static_cast<int>(mappings.size()); ++i) {
-            bool pressed = (reading.Buttons & mappings[i]) != GamepadButtons::None;
+            const int physical = FaceButtonIndex(i, button_layout);
+            bool pressed = (reading.Buttons & mappings[physical]) != GamepadButtons::None;
             if (i == Settings::NativeButton::ZL)
                 pressed = reading.LeftTrigger > 0.5;
             if (i == Settings::NativeButton::ZR)
                 pressed = reading.RightTrigger > 0.5;
-            pressed = pressed || (keys & (1u << i)) != 0;
+            pressed = pressed || (physical_keys & (1u << physical)) != 0 ||
+                      (scripted_keys & (1u << i)) != 0;
             if (i == Settings::NativeButton::Minus)
                 pressed = motion.minus_pressed;
             if (i == Settings::NativeButton::RStick && motion.suppress_right_stick)
@@ -229,6 +239,7 @@ public:
     }
 
 private:
+    ButtonLayout button_layout = ButtonLayout::Name;
     StickMotion stick_motion;
     HomeComboState home_combo;
     HomeComboAction home_combo_action{};

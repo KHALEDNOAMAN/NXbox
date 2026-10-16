@@ -24,6 +24,7 @@
 
 #include "common/scope_exit.h"
 #include "eden_uwp/diagnostic.h"
+#include "eden_uwp/renderer_settings.h"
 #include "eden_uwp/save_sync.h"
 #include "eden_uwp/save_sync/qrcodegen.hpp"
 #include "eden_uwp/ui/anim.h"
@@ -930,10 +931,75 @@ SignInOutcome RunSignIn(Renderer& renderer, const CoreWindow& window, Input& inp
     return finished ? runner.Outcome() : SignInOutcome::Cancelled;
 }
 
+namespace {
+// This screen always consumes physical Xbox UI controls, independent of guest mapping.
+bool RunButtonLayoutSetup(Renderer& renderer, const CoreWindow& window, Input& input,
+                          const fs::path& local_state) {
+    InputTransition transition(input);
+    int focus = RendererSettings::ReadButtonLayout(local_state) == ButtonLayout::Position ? 1 : 0;
+    bool save_failed = false;
+    return RunFrames(renderer, window, input, [&](Clock::time_point) {
+        if (input.Pressed(Button::Left))
+            focus = 0;
+        if (input.Pressed(Button::Right))
+            focus = 1;
+        if (input.Pressed(Button::A)) {
+            if (RendererSettings::SaveButtonLayout(
+                    local_state, focus == 0 ? ButtonLayout::Name : ButtonLayout::Position))
+                return false;
+            save_failed = true;
+        }
+        DrawBackground(renderer);
+        renderer.DrawString(Tr(Text::ButtonLayoutTitle), Font::TitleSmall,
+                            RectF(kMargin, 150, kCanvasWidth - kMargin, 270), Theme::kText);
+        for (int card = 0; card < 2; ++card) {
+            const float left = kMargin + static_cast<float>(card) * 880.0f;
+            const auto rect = RectF(left, 320, left + 840, 860);
+            renderer.FillRounded(rect, 24, Theme::kSurface);
+            renderer.StrokeRounded(Inflate(rect, -0.5f), 24, 1, Theme::kHairline);
+            if (focus == card)
+                DrawRing(renderer, rect, 24 + kRingGap, 1);
+            const float cx = left + 420;
+            // Top, left, right, bottom. Letters are the buttons received by the game.
+            const D2D1_POINT_2F centers[] = {Point2F(cx, 410), Point2F(cx - 90, 500),
+                                             Point2F(cx + 90, 500), Point2F(cx, 590)};
+            const D2D1_COLOR_F colors[] = {Theme::kPhysicalButtonY, Theme::kPhysicalButtonX,
+                                           Theme::kPhysicalButtonB, Theme::kPhysicalButtonA};
+            const wchar_t* name_letters[] = {L"Y", L"X", L"B", L"A"};
+            const wchar_t* position_letters[] = {L"X", L"Y", L"A", L"B"};
+            for (int spot = 0; spot < 4; ++spot) {
+                const auto center = centers[spot];
+                renderer.FillDisc(center, 38, colors[spot]);
+                renderer.DrawString(
+                    card == 0 ? name_letters[spot] : position_letters[spot], Font::Button,
+                    RectF(center.x - 38, center.y - 38, center.x + 38, center.y + 38),
+                    Theme::kButtonLetter, HAlign::Center, VAlign::Middle);
+            }
+            renderer.DrawString(Tr(card == 0 ? Text::ButtonLayoutName : Text::ButtonLayoutPosition),
+                                Font::RowTitle, RectF(left + 32, 660, left + 808, 740),
+                                Theme::kText, HAlign::Center);
+            renderer.DrawString(
+                Tr(card == 0 ? Text::ButtonLayoutNameCaption : Text::ButtonLayoutPositionCaption),
+                Font::RowSub, RectF(left + 48, 754, left + 792, 840), Theme::kTextSecondary,
+                HAlign::Center);
+        }
+        if (save_failed)
+            renderer.DrawString(Tr(Text::ButtonLayoutSaveFailed), Font::RowSub,
+                                RectF(kMargin, 890, kCanvasWidth - kMargin, 940),
+                                Theme::kDangerText);
+        DrawHints(renderer, {{Theme::kButtonA, L"A", Tr(Text::HintSelect)}});
+        return true;
+    });
+}
+
+} // namespace
+
 bool RunFirstRunSetup(Renderer& renderer, const CoreWindow& window, Input& input,
                       const fs::path& local_state) {
     Diagnostic("UI setup begin");
-    int focus = 0; // 0 = Sim, 1 = Agora não
+    if (IsSetupDone(local_state))
+        return RunButtonLayoutSetup(renderer, window, input, local_state);
+    int focus = 0; // 0 = yes, 1 = not now
     bool wants_sync = false;
     bool decided = false;
     const bool closed = RunFrames(renderer, window, input, [&](Clock::time_point) {
@@ -982,6 +1048,8 @@ bool RunFirstRunSetup(Renderer& renderer, const CoreWindow& window, Input& input
             return true;
         }
     }
+    if (RunButtonLayoutSetup(renderer, window, input, local_state))
+        return true;
     std::ofstream(local_state / "setup_done.txt", std::ios::trunc) << "1\n";
     Diagnostic("UI setup done");
     return false;

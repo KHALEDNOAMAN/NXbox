@@ -46,6 +46,13 @@ inline constexpr D2D1_COLOR_F kSuccessText = Rgb(0x7EE3A8);
 inline constexpr D2D1_COLOR_F kDangerFill = Rgb(0xE5534B, 0.18);
 inline constexpr D2D1_COLOR_F kDangerText = Rgb(0xFF8E87);
 
+// Physical Xbox face buttons in the layout chooser; color stays with the position.
+inline constexpr D2D1_COLOR_F kPhysicalButtonA = Rgb(0x107C10);
+inline constexpr D2D1_COLOR_F kPhysicalButtonB = Rgb(0xE81123);
+inline constexpr D2D1_COLOR_F kPhysicalButtonX = Rgb(0x0078D7);
+inline constexpr D2D1_COLOR_F kPhysicalButtonY = Rgb(0xFFB900);
+inline constexpr D2D1_COLOR_F kButtonLetter = Rgb(0xFFFFFF);
+
 // Controller button glyphs of the hint bar.
 inline constexpr D2D1_COLOR_F kButtonA = Rgb(0x5EC26A);
 inline constexpr D2D1_COLOR_F kButtonB = Rgb(0xE5534B);

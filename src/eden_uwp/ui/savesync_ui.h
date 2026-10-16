@@ -41,9 +41,9 @@ bool SyncEnabled();
 // LocalState\setup_done.txt: written when the first-run setup has been shown and answered.
 bool IsSetupDone(const std::filesystem::path& local_state);
 
-// The first-run question "Sincronizar saves com o SwitchSaveSync?" with Sim and Agora não; Sim
-// goes on to the sign-in screen. Writes setup_done.txt at the end. Returns true when the window was
-// closed meanwhile (setup_done.txt is then not written, so the question comes back).
+// First-run save-sync question, optional sign-in, then the button layout choice.
+// Completed installs only see the layout choice when its setting is missing.
+// Writes setup_done.txt after choosing; returns true if the window closed meanwhile.
 bool RunFirstRunSetup(Renderer& renderer, const winrt::Windows::UI::Core::CoreWindow& window,
                       Input& input, const std::filesystem::path& local_state);
 

@@ -307,8 +307,10 @@ void ApplyEdenSettingsFile(const std::filesystem::path& settings_file) {
             continue;
         }
         const auto& [label, value] = *entry;
-        if (label == kOfficialSwitchInterfaceKey) {
-            continue; // Frontend preference, applied by the boot flow rather than Core::Settings.
+        if (label == kOfficialSwitchInterfaceKey || label == "button_layout") {
+            // Frontend preferences have dedicated readers; layout is global and normalized
+            // once per session so per-title files cannot disagree with the physical mapping.
+            continue;
         }
         if (label == "resolution_setup" && !TitleSettings::ParseResolution(value)) {
             Diagnostic(fmt::format("SETTING {}={} invalid", label, value));
@@ -802,6 +804,12 @@ void RunGame(MesaWindow& window, const std::string& bundled_path, const std::ato
     // Mods the player turned off in the mod store go into Eden's disabled add-ons list.
     Ui::ApplyDisabledMods(std::filesystem::path(winrt::to_string(
         winrt::Windows::Storage::ApplicationData::Current().LocalFolder().Path())));
+    const auto button_layout =
+        RendererSettings::ReadButtonLayout(std::filesystem::path(winrt::to_string(
+            winrt::Windows::Storage::ApplicationData::Current().LocalFolder().Path())));
+    Settings::values.button_layout.SetValue(button_layout == ButtonLayout::Position ? "position"
+                                                                                    : "name");
+    gamepad->SetButtonLayout(button_layout);
     XboxGamepad::Configure(gamepad);
     RegisterUnsupportedEngines();
     SCOPE_EXIT {

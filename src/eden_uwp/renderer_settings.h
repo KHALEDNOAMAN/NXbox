@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include "eden_uwp/button_layout.h"
 #include "eden_uwp/title_settings.h"
 
 namespace EdenXbox::RendererSettings {
@@ -84,6 +85,50 @@ inline bool SaveXboxButtonIcons(const std::filesystem::path& local, bool enabled
     in.close();
     std::ofstream out(file, std::ios::trunc);
     out << content << "xbox_button_icons=" << (enabled ? 1 : 0) << '\n';
+    out.close();
+    return !out.fail();
+}
+// Presence is separate from the default so existing installs see the chooser once.
+inline bool HasButtonLayout(const std::filesystem::path& local) {
+    std::ifstream in(local / "eden_settings.txt");
+    for (std::string line; std::getline(in, line);) {
+        const auto entry = TitleSettings::ParseLine(line);
+        if (entry && entry->label == "button_layout")
+            return true;
+    }
+    return false;
+}
+inline ButtonLayout ReadButtonLayout(const std::filesystem::path& local) {
+    std::ifstream in(local / "eden_settings.txt");
+    ButtonLayout layout = ButtonLayout::Name;
+    for (std::string line; std::getline(in, line);) {
+        const auto entry = TitleSettings::ParseLine(line);
+        if (entry && entry->label == "button_layout")
+            layout = entry->value == "position" ? ButtonLayout::Position : ButtonLayout::Name;
+    }
+    return layout;
+}
+inline bool SaveButtonLayout(const std::filesystem::path& local, ButtonLayout layout) {
+    const auto file = local / "eden_settings.txt";
+    std::error_code error;
+    const bool exists = std::filesystem::exists(file, error);
+    if (error)
+        return false;
+    std::ifstream in(file);
+    if (exists && !in)
+        return false;
+    std::string content;
+    for (std::string line; std::getline(in, line);) {
+        const auto entry = TitleSettings::ParseLine(line);
+        if (!entry || entry->label != "button_layout")
+            content += line + '\n';
+    }
+    if (in.bad())
+        return false;
+    in.close();
+    std::ofstream out(file, std::ios::trunc);
+    out << content << "button_layout=" << (layout == ButtonLayout::Position ? "position" : "name")
+        << '\n';
     out.close();
     return !out.fail();
 }

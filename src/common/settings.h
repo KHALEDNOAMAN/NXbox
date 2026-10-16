@@ -924,6 +924,7 @@ struct Values {
                                            true};
 
     // Miscellaneous
+    Setting<std::string> button_layout{linkage, "name", "button_layout", Category::Miscellaneous};
     Setting<bool> xbox_button_icons{linkage, true, "xbox_button_icons", Category::Miscellaneous};
     Setting<std::string> log_filter{linkage, "*:Info", "log_filter", Category::Miscellaneous};
     Setting<bool> log_flush_line{linkage, false, "flush_line", Category::Miscellaneous, Specialization::Default, true, true};

@@ -139,7 +139,7 @@ def test_xbox_archive_overrides_both_slots_before_nand():
     assert "Settings::values.xbox_button_icons.GetValue()" in loop
     assert "static_cast<u64>(font.first) == 0x0100000000000810" in loop
     assert re.search(
-        r"if \(use_xbox\)\s*\{\s*romfs = FileSys::SystemArchive::SynthesizeXboxFontArchive\(\)",
+        r"if \(use_xbox\)\s*\{\s*romfs = Settings::values.button_layout.GetValue\(\)",
         loop,
     )
     assert "(force_substitute || use_xbox)" in loop

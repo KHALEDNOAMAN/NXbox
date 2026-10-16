@@ -373,3 +373,13 @@
      L"Evita travadas e tela preta no começo. Aperte B na tela de carregamento para pular."},
     {Text::LaunchShaderPreload, L"Carregando shaders para uma melhor experiência"},
     {Text::LaunchShaderSkip, L"B Pular (o jogo pode travar no começo)"},
+
+    {Text::ButtonLayoutTitle, L"Layout dos botões"},
+    {Text::ButtonLayoutName, L"Xbox (pelo nome)"},
+    {Text::ButtonLayoutPosition, L"Nintendo clássico (pela posição)"},
+    {Text::ButtonLayoutNameCaption, L"Os botões fazem o que o nome diz."},
+    {Text::ButtonLayoutPositionCaption, L"Mesma posição do Switch: confirma com o da direita."},
+    {Text::ButtonLayoutHint, L"Vale no próximo jogo. No NXbox, A continua confirmando."},
+    {Text::ButtonLayoutSaveFailed, L"Não foi possível salvar. Aperte A para tentar novamente."},
+    {Text::ButtonLayoutNameShort, L"Xbox (pelo nome)"},
+    {Text::ButtonLayoutPositionShort, L"Nintendo (pela posição)"},

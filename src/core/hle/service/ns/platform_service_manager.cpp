@@ -127,7 +127,9 @@ IPlatformServiceManager::IPlatformServiceManager(Core::System& system_, const ch
                               static_cast<u64>(font.first) == 0x0100000000000810;
         FileSys::VirtualFile romfs;
         if (use_xbox) {
-            romfs = FileSys::SystemArchive::SynthesizeXboxFontArchive();
+            romfs = Settings::values.button_layout.GetValue() == "position"
+                        ? FileSys::SystemArchive::SynthesizeXboxPositionFontArchive()
+                        : FileSys::SystemArchive::SynthesizeXboxFontArchive();
             LOG_INFO(Service_NS, "Using Xbox shared button icons for {}", font.second);
         }
         const auto nca =
