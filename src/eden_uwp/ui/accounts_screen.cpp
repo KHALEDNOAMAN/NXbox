@@ -212,7 +212,7 @@ private:
                 row_ =
                     moru_
                         ? (picture_only_ ? 1 : 5)
-                        : static_cast<int>(std::find(visible_.begin(), visible_.end(), character_) -
+                        : static_cast<int>(std::find(visible_.begin(), visible_.end(), static_cast<std::size_t>(character_)) -
                                            visible_.begin());
             } else if (page_ == Page::Presets) {
                 page_ = picture_only_ ? Page::Picture : Page::Detail;
