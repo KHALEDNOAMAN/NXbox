@@ -57,7 +57,8 @@ int main(int argc, char** argv) {
     assert(!SaveButtonLayout(file, ButtonLayout::Position));
     assert(!SaveButtonLayout(local / "missing", ButtonLayout::Name));
     constexpr int name[] = {0, 1, 2, 3};
-    constexpr int position[] = {1, 0, 3, 2};
+    constexpr int position[] = {1, 0, 2, 3};
+    assert(FaceButtonIndex(-1, ButtonLayout::Position) == -1);
     for (int i = 0; i < 20; ++i) {
         assert(FaceButtonIndex(i, ButtonLayout::Name) == (i < 4 ? name[i] : i));
         assert(FaceButtonIndex(i, ButtonLayout::Position) == (i < 4 ? position[i] : i));
@@ -115,12 +116,27 @@ def test_setup_migration_cards_and_settings_strings():
     for action in ("Left", "Right", "A"):
         assert f"input.Pressed(Button::{action})" in cards
     assert "SaveButtonLayout" in cards and "save_failed = true" in cards
-    assert 'name_letters[] = {L"Y", L"X", L"B", L"A"}' in cards
-    assert 'position_letters[] = {L"X", L"Y", L"A", L"B"}' in cards
-    assert "renderer.FillDisc" in cards and "DrawRing" in cards
+    assert "DrawXboxButtonDiamond" in cards and "DrawRing" in cards
+    assert "Text::ButtonLayoutNameActions" in cards
+    assert "Text::ButtonLayoutPositionActions" in cards
+    widgets = (ROOT / "src/eden_uwp/ui/widgets.cpp").read_text()
+    diamond = widgets.split("void DrawXboxButtonDiamond", 1)[1].split("float PillWidth", 1)[0]
+    assert 'letters[] = {L"Y", L"X", L"B", L"A"}' in diamond
+    assert re.findall(r"Theme::kPhysicalButton([ABXY])", diamond) == ["Y", "X", "B", "A"]
+    for point in (
+        "Point2F(center.x, center.y - spacing)",
+        "Point2F(center.x - spacing, center.y)",
+        "Point2F(center.x + spacing, center.y)",
+        "Point2F(center.x, center.y + spacing)",
+    ):
+        assert point in diamond
+    assert "layout == ButtonLayout::Position ? 2 : 3" in diamond
+    assert "spot == confirm" in diamond and "renderer.StrokeRounded" in diamond
+    assert "renderer.FillDisc" in diamond
     library = (ROOT / "src/eden_uwp/ui/library_screen.cpp").read_text()
     assert "!IsSetupDone(local_state) || !RendererSettings::HasButtonLayout(local_state)" in library
     assert "Setting::ButtonLayout" in library
+    assert "DrawXboxButtonDiamond(renderer_" in library
     assert "SaveButtonLayout(local_state_, next)" in library
     model = (ROOT / "src/eden_uwp/ui/settings_model.h").read_text()
     assert "Setting::XboxButtonIcons, Setting::ButtonLayout" in model
@@ -130,6 +146,8 @@ def test_setup_migration_cards_and_settings_strings():
             "Title",
             "Name",
             "Position",
+            "NameActions",
+            "PositionActions",
             "NameCaption",
             "PositionCaption",
             "Hint",
@@ -140,14 +158,14 @@ def test_setup_migration_cards_and_settings_strings():
             assert f"Text::ButtonLayout{key}," in strings
 
 
-def test_position_font_swaps_only_face_glyphs_and_is_deterministic():
+def test_position_font_swaps_only_ab_glyphs_and_is_deterministic():
     name = load("font_nintendo_extended_xbox")
     position = load("font_nintendo_extended_xbox_position")
     assert GENERATOR.build_font("position") == GENERATOR.read_array(
         DATA / "font_nintendo_extended_xbox_position.cpp"
     )
     assert name.getBestCmap() == position.getBestCmap()
-    swaps = {base + i: base + (i ^ 1) for base in (0xE0A0, 0xE0E0) for i in range(4)}
+    swaps = {base + i: base + (i ^ 1) for base in (0xE0A0, 0xE0E0) for i in range(2)}
     by_name = {name.getBestCmap()[cp]: name.getBestCmap()[other] for cp, other in swaps.items()}
     for glyph in name.getGlyphOrder():
         assert raw_glyph(position, glyph) == raw_glyph(name, by_name.get(glyph, glyph)), glyph
@@ -164,3 +182,30 @@ def test_position_font_swaps_only_face_glyphs_and_is_deterministic():
     cmake = (ROOT / "src/core/CMakeLists.txt").read_text()
     for extension in ("cpp", "h"):
         assert f"font_nintendo_extended_xbox_position.{extension}" in cmake
+
+
+def test_confirm_button_translations():
+    expected = {
+        "en": {
+            "Title": "Confirm button",
+            "Name": "Confirm with A",
+            "Position": "Confirm with B",
+            "NameCaption": "Xbox standard.",
+            "PositionCaption": "Like on a Switch: the right button confirms.",
+            "NameActions": "A = Confirm · B = Back",
+            "PositionActions": "B = Confirm · A = Back",
+        },
+        "pt_br": {
+            "Title": "Botão de confirmar",
+            "Name": "Confirmar com A",
+            "Position": "Confirmar com B",
+            "NameCaption": "Padrão do Xbox.",
+            "PositionCaption": "Como no Switch: o botão da direita confirma.",
+            "NameActions": "A = Confirmar · B = Voltar",
+            "PositionActions": "B = Confirmar · A = Voltar",
+        },
+    }
+    for lang, translations in expected.items():
+        strings = (ROOT / f"src/eden_uwp/ui/lang/{lang}.inc").read_text()
+        for key, value in (translations | {"NameShort": "A", "PositionShort": "B"}).items():
+            assert f'Text::ButtonLayout{key}, L"{value}"' in strings

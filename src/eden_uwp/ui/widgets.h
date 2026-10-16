@@ -8,6 +8,7 @@
 
 #include <d2d1.h>
 
+#include "eden_uwp/button_layout.h"
 #include "eden_uwp/ui/renderer.h"
 #include "eden_uwp/ui/theme.h"
 
@@ -58,6 +59,10 @@ std::wstring FormatBytes(std::uint64_t bytes);
 void DrawGlassEdge(Renderer& renderer, const D2D1_RECT_F& rect, float radius);
 // The ribbon focus ring around `element`; `outer_radius` is the radius of the ring's outer edge.
 void DrawRing(Renderer& renderer, const D2D1_RECT_F& element, float outer_radius, float opacity);
+
+// Physical Xbox diamond; only the confirm highlight depends on the guest layout.
+void DrawXboxButtonDiamond(Renderer& renderer, D2D1_POINT_2F center, float spacing, float radius,
+                           Font font, ButtonLayout layout);
 
 // Width of a pill with this label; the primary one carries the play glyph.
 float PillWidth(const Renderer& renderer, const std::wstring& label, bool primary);

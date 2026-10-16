@@ -9,7 +9,7 @@ Cmap inspection and an outline contact sheet of the repository's substitute conf
   E0A6/E0E6 ZL -> LT, E0A7/E0E7 ZR -> RT
   E0B3/E0EF + -> Menu, E0B4/E0F0 - -> View
 The first codepoint is outlined, the second filled. Both become Xbox designs.
-Emit name and position variants; position swaps A/B and X/Y in both ranges.
+Emit name and position variants; position swaps only A/B in both ranges. X/Y stay unchanged.
 E0A8/E0E8 and E0A9/E0E9 are SL/SR, NOT stick clicks; leave them untouched.
 
 The substitute has NO Home or stick-click glyphs. Add these canonical mappings:
@@ -285,11 +285,10 @@ def build_font(layout="name"):
     for name, data in preserved_glyphs.items():
         font["glyf"][name] = Glyph(data)
     if layout == "position":
-        # Swap both outline and filled face glyphs after building the name variant.
+        # Swap only A/B, outlined and filled, after building the name variant.
         for base in (0xE0A0, 0xE0E0):
-            for left, right in ((base, base + 1), (base + 2, base + 3)):
-                a, b = font.getBestCmap()[left], font.getBestCmap()[right]
-                font["glyf"][a], font["glyf"][b] = font["glyf"][b], font["glyf"][a]
+            a, b = font.getBestCmap()[base], font.getBestCmap()[base + 1]
+            font["glyf"][a], font["glyf"][b] = font["glyf"][b], font["glyf"][a]
     elif layout != "name":
         raise ValueError(f"Unknown button layout: {layout}")
     font.recalcBBoxes = False

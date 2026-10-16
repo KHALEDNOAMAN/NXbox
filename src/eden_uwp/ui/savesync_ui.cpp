@@ -960,23 +960,14 @@ bool RunButtonLayoutSetup(Renderer& renderer, const CoreWindow& window, Input& i
             if (focus == card)
                 DrawRing(renderer, rect, 24 + kRingGap, 1);
             const float cx = left + 420;
-            // Top, left, right, bottom. Letters are the buttons received by the game.
-            const D2D1_POINT_2F centers[] = {Point2F(cx, 410), Point2F(cx - 90, 500),
-                                             Point2F(cx + 90, 500), Point2F(cx, 590)};
-            const D2D1_COLOR_F colors[] = {Theme::kPhysicalButtonY, Theme::kPhysicalButtonX,
-                                           Theme::kPhysicalButtonB, Theme::kPhysicalButtonA};
-            const wchar_t* name_letters[] = {L"Y", L"X", L"B", L"A"};
-            const wchar_t* position_letters[] = {L"X", L"Y", L"A", L"B"};
-            for (int spot = 0; spot < 4; ++spot) {
-                const auto center = centers[spot];
-                renderer.FillDisc(center, 38, colors[spot]);
-                renderer.DrawString(
-                    card == 0 ? name_letters[spot] : position_letters[spot], Font::Button,
-                    RectF(center.x - 38, center.y - 38, center.x + 38, center.y + 38),
-                    Theme::kButtonLetter, HAlign::Center, VAlign::Middle);
-            }
+            DrawXboxButtonDiamond(renderer, Point2F(cx, 500), 90, 38, Font::Button,
+                                  card == 0 ? ButtonLayout::Name : ButtonLayout::Position);
+            renderer.DrawString(
+                Tr(card == 0 ? Text::ButtonLayoutNameActions : Text::ButtonLayoutPositionActions),
+                Font::RowSub, RectF(left + 32, 638, left + 808, 678), Theme::kTextSecondary,
+                HAlign::Center);
             renderer.DrawString(Tr(card == 0 ? Text::ButtonLayoutName : Text::ButtonLayoutPosition),
-                                Font::RowTitle, RectF(left + 32, 660, left + 808, 740),
+                                Font::RowTitle, RectF(left + 32, 690, left + 808, 750),
                                 Theme::kText, HAlign::Center);
             renderer.DrawString(
                 Tr(card == 0 ? Text::ButtonLayoutNameCaption : Text::ButtonLayoutPositionCaption),

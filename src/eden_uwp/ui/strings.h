@@ -334,6 +334,8 @@ enum class Text {
     ButtonLayoutTitle,
     ButtonLayoutName,
     ButtonLayoutPosition,
+    ButtonLayoutNameActions,
+    ButtonLayoutPositionActions,
     ButtonLayoutNameCaption,
     ButtonLayoutPositionCaption,
     ButtonLayoutHint,

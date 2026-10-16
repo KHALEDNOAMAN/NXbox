@@ -1678,19 +1678,23 @@ private:
                                  (renderer_open_ ? renderer_choice_ : settings_row_) == i;
             if (focused)
                 renderer_.FillRounded(rect, (kRowPitch - 16.0f) / 2.0f, Theme::kSurfaceStrong);
+            const bool layout_row = !renderer_open_ && setting == Setting::ButtonLayout;
+            const float text_left = kRowsLeft + (layout_row ? 124.0f : 28.0f);
+            if (layout_row)
+                DrawXboxButtonDiamond(renderer_, Point2F(kRowsLeft + 60.0f, y + 44.0f), 25.0f,
+                                      12.0f, Font::Glyph, button_layout_);
             renderer_.DrawString(
                 item.name, Font::RowTitle,
-                RectF(kRowsLeft + 28.0f, y + 12.0f,
+                RectF(text_left, y + 12.0f,
                       renderer_open_ && i == 2 ? kRight - 28.0f : kRowsLeft + 620.0f, y + 54.0f),
                 disabled ? Theme::kTextTertiary : Theme::kText);
             renderer_.DrawString(item.state, Font::RowSub,
                                  RectF(kRowsLeft + 630.0f, y + 12.0f, kRight - 28.0f, y + 54.0f),
                                  disabled ? Theme::kTextTertiary : item.state_color, HAlign::Right,
                                  VAlign::Middle);
-            renderer_.DrawString(
-                item.hint, Font::RowSub,
-                RectF(kRowsLeft + 28.0f, y + 54.0f, kRight - 28.0f, y + kRowPitch - 20.0f),
-                Theme::kTextSecondary);
+            renderer_.DrawString(item.hint, Font::RowSub,
+                                 RectF(text_left, y + 54.0f, kRight - 28.0f, y + kRowPitch - 20.0f),
+                                 Theme::kTextSecondary);
             if (focused)
                 DrawRing(renderer_, rect, (kRowPitch - 16.0f) / 2.0f + kRingGap, 1.0f);
         }

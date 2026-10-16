@@ -137,6 +137,29 @@ void DrawRing(Renderer& renderer, const D2D1_RECT_F& element, float outer_radius
                             Point2F(x + kSin * half, y - kCos * half), opacity);
 }
 
+void DrawXboxButtonDiamond(Renderer& renderer, D2D1_POINT_2F center, float spacing, float radius,
+                           Font font, ButtonLayout layout) {
+    // Top, left, right, bottom always show the physical Xbox letters and colors.
+    const D2D1_POINT_2F centers[] = {
+        Point2F(center.x, center.y - spacing), Point2F(center.x - spacing, center.y),
+        Point2F(center.x + spacing, center.y), Point2F(center.x, center.y + spacing)};
+    const D2D1_COLOR_F colors[] = {Theme::kPhysicalButtonY, Theme::kPhysicalButtonX,
+                                   Theme::kPhysicalButtonB, Theme::kPhysicalButtonA};
+    const wchar_t* letters[] = {L"Y", L"X", L"B", L"A"};
+    const int confirm = layout == ButtonLayout::Position ? 2 : 3;
+    for (int spot = 0; spot < 4; ++spot) {
+        const auto button = centers[spot];
+        const float size = radius * (spot == confirm ? 1.15f : 1.0f);
+        renderer.FillDisc(button, size, colors[spot]);
+        const auto bounds =
+            RectF(button.x - size, button.y - size, button.x + size, button.y + size);
+        if (spot == confirm)
+            renderer.StrokeRounded(Inflate(bounds, 3.0f), size + 3.0f, 2.0f, Theme::kText);
+        renderer.DrawString(letters[spot], font, bounds, Theme::kButtonLetter, HAlign::Center,
+                            VAlign::Middle);
+    }
+}
+
 float PillWidth(const Renderer& renderer, const std::wstring& label, bool primary) {
     return renderer.MeasureString(label, Font::Button).width + 2.0f * kPillPadding +
            (primary ? kPlayGlyph + kPlayGap : 0.0f);
