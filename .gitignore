@@ -67,6 +67,7 @@ vulkansdk*.exe
 # NXbox local build products and working notes
 /homebrew/**/build/
 /build-port-tests*/
+/xbox_icons_preview.png
 /PEDIDOS.md
 tools/shader-share/data/
 

@@ -331,6 +331,8 @@ enum class Text {
     LaunchShaderSkip,
     ShaderPreloadTitle,
     ShaderPreloadHint,
+    XboxButtonIconsTitle,
+    XboxButtonIconsHint,
     LaunchStarting,
     LaunchMissing,
     LaunchFailed,

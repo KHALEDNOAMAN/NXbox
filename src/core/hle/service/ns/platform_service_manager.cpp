@@ -13,6 +13,7 @@
 #include "common/assert.h"
 #include "common/common_types.h"
 #include "common/logging.h"
+#include "common/settings.h"
 #include "common/swap.h"
 #include "core/core.h"
 #include "core/file_sys/content_archive.h"
@@ -122,9 +123,15 @@ IPlatformServiceManager::IPlatformServiceManager(Core::System& system_, const ch
     const bool force_substitute = substitute_env != nullptr && substitute_env[0] == '1';
     // Rebuild shared fonts from data ncas or synthesize
     for (auto& font : SHARED_FONTS) {
+        const bool use_xbox = Settings::values.xbox_button_icons.GetValue() &&
+                              static_cast<u64>(font.first) == 0x0100000000000810;
         FileSys::VirtualFile romfs;
+        if (use_xbox) {
+            romfs = FileSys::SystemArchive::SynthesizeXboxFontArchive();
+            LOG_INFO(Service_NS, "Using Xbox shared button icons for {}", font.second);
+        }
         const auto nca =
-            force_substitute
+            (force_substitute || use_xbox)
                 ? nullptr
                 : nand->GetEntry(static_cast<u64>(font.first), FileSys::ContentRecordType::Data);
         if (nca) {
@@ -135,7 +142,7 @@ IPlatformServiceManager::IPlatformServiceManager(Core::System& system_, const ch
             romfs = FileSys::SystemArchive::SynthesizeSystemArchive(static_cast<u64>(font.first));
             LOG_WARNING(Service_NS, "Shared font {:016X} not in system NAND; using the substitute",
                         font.first);
-        } else {
+        } else if (!use_xbox) {
             LOG_INFO(Service_NS, "Shared font {:016X} loaded from system NAND", font.first);
         }
 

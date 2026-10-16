@@ -796,6 +796,9 @@ void RunGame(MesaWindow& window, const std::string& bundled_path, const std::ato
     // error and returns to the game.
     Settings::values.error_applet_mode.SetValue(Settings::AppletMode::HLE);
     ApplyEdenSettingsFile();
+    Settings::values.xbox_button_icons.SetValue(
+        RendererSettings::ReadXboxButtonIcons(std::filesystem::path(winrt::to_string(
+            winrt::Windows::Storage::ApplicationData::Current().LocalFolder().Path()))));
     // Mods the player turned off in the mod store go into Eden's disabled add-ons list.
     Ui::ApplyDisabledMods(std::filesystem::path(winrt::to_string(
         winrt::Windows::Storage::ApplicationData::Current().LocalFolder().Path())));

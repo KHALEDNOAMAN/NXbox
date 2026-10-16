@@ -8,6 +8,7 @@
 namespace FileSys::SystemArchive {
 
 VirtualDir FontNintendoExtension();
+VirtualDir FontNintendoExtensionXbox();
 VirtualDir FontStandard();
 VirtualDir FontKorean();
 VirtualDir FontChineseTraditional();

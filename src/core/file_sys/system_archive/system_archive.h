@@ -9,5 +9,6 @@
 namespace FileSys::SystemArchive {
 
 VirtualFile SynthesizeSystemArchive(u64 title_id);
+VirtualFile SynthesizeXboxFontArchive();
 
 } // namespace FileSys::SystemArchive

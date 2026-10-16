@@ -20,7 +20,7 @@ int main(int argc, char** argv) {
     assert(argc == 2);
     std::array<int, static_cast<std::size_t>(Setting::Count)> visits{};
     for (const auto& category : kSettingsCategories) {
-        assert(category.count > 0 && category.count <= 4);
+        assert(category.count > 0 && category.count <= static_cast<int>(category.rows.size()));
         for (int row = 0; row < category.count; ++row)
             ++visits[static_cast<std::size_t>(category.rows[row])];
     }

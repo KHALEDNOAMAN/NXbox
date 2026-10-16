@@ -94,6 +94,10 @@ constexpr inline SystemArchiveDescriptor GetSystemArchive(u64 title_id) {
     }
 }
 
+VirtualFile SynthesizeXboxFontArchive() {
+    return CreateRomFS(FontNintendoExtensionXbox());
+}
+
 VirtualFile SynthesizeSystemArchive(const u64 title_id) {
     auto const desc = GetSystemArchive(title_id);
     LOG_INFO(Service_FS, "Synthesizing system archive '{}' ({:#016x}).",

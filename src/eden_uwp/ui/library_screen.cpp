@@ -224,6 +224,7 @@ public:
         official_interface_ = UseOfficialSwitchInterface(local_state_);
         renderer_backend_ = RendererSettings::Read(local_state_);
         shader_preload_ = RendererSettings::ReadShaderPreload(local_state_);
+        xbox_button_icons_ = RendererSettings::ReadXboxButtonIcons(local_state_);
         std::ifstream resolution_settings(local_state_ / "eden_settings.txt");
         settings_resolution_ = TitleSettings::ReadResolution(resolution_settings);
         if (return_home_) {
@@ -797,6 +798,13 @@ private:
         if (SelectedSetting() == Setting::Renderer) {
             renderer_choice_ = renderer_backend_ == RendererSettings::kOpenGL ? 1 : 0;
             renderer_open_ = true;
+            return;
+        }
+        if (SelectedSetting() == Setting::XboxButtonIcons) {
+            if (RendererSettings::SaveXboxButtonIcons(local_state_, !xbox_button_icons_))
+                xbox_button_icons_ = !xbox_button_icons_;
+            else
+                Toast(Tr(Text::ResolutionSaveFailed), now);
             return;
         }
         if (SelectedSetting() == Setting::ShaderPreload) {
@@ -1609,6 +1617,9 @@ private:
              {Tr(Text::ShaderPreloadTitle),
               Tr(shader_preload_ ? Text::NextendoOn : Text::NextendoOff), Theme::kTextSecondary,
               Tr(Text::ShaderPreloadHint)},
+             {Tr(Text::XboxButtonIconsTitle),
+              Tr(xbox_button_icons_ ? Text::NextendoOn : Text::NextendoOff), Theme::kTextSecondary,
+              Tr(Text::XboxButtonIconsHint)},
              {Tr(Text::ResolutionTitle), Tr(resolution_label), Theme::kTextSecondary,
               Tr(Text::ResolutionMemoryHint)},
              {Tr(Text::SettingsVersion), build.c_str(), Theme::kTextSecondary,
@@ -1791,6 +1802,7 @@ private:
     int renderer_choice_ = 0;
     bool resolution_global_ = false;
     bool shader_preload_ = true;
+    bool xbox_button_icons_ = true;
     int renderer_backend_ = RendererSettings::kDirectX12;
     int settings_resolution_ = TitleSettings::kDefaultResolution;
     SyncAccount sync_account_ = SyncAccount::SignedOut;
