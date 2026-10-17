@@ -755,7 +755,7 @@ Context::Context() {
     }
     for (const auto* knob :
          {"NXBOX_D3D12_NO_PSO_LIBRARY", "NXBOX_D3D12_GPU_ASTC", "NXBOX_D3D12_NO_COMPUTE",
-          "NXBOX_D3D12_NO_DRAWS", "NXBOX_D3D12_NO_QUERIES"})
+          "NXBOX_D3D12_NO_DRAWS", "NXBOX_D3D12_NO_QUERIES", "NXBOX_D3D12_SUBMIT_TRACE"})
         Diagnostic(fmt::format("D3D12 bisect {}={}", knob, BisectEnabled(knob) ? 1 : 0));
     D3D12_FEATURE_DATA_SHADER_MODEL model{D3D_SHADER_MODEL_6_0};
     Check(device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &model, sizeof(model)),
@@ -1016,7 +1016,10 @@ u64 Context::Submit(FrameCount reason) {
                                       contents.empty() ? "barriers/state" : contents);
         const std::wstring wide_name(name.begin(), name.end());
         commands->SetName(wide_name.c_str());
-        if (execute_sequence <= 8 || execute_sequence % 120 == 0)
+        // NXBOX_D3D12_SUBMIT_TRACE=1 logs every submission and waits for it to finish, so the last
+        // logged line before a device removal names the command list that caused it.
+        static const bool submit_trace = BisectEnabled("NXBOX_D3D12_SUBMIT_TRACE");
+        if (submit_trace || execute_sequence <= 8 || execute_sequence % 120 == 0)
             Diagnostic(fmt::format("D3D12 ExecuteCommandLists sequence={} tick={} contents={}",
                                    execute_sequence, CurrentTick(), contents));
         Check(device->GetDeviceRemovedReason(), "before ExecuteCommandLists", device.Get());
@@ -1041,6 +1044,8 @@ u64 Context::Submit(FrameCount reason) {
     }
     Check(queue->Signal(fence.Get(), tick), "Signal", device.Get());
     submitted = tick;
+    if (BisectEnabled("NXBOX_D3D12_SUBMIT_TRACE"))
+        WaitSubmitted(tick, "submit trace");
     // Report progress even when the guest has stopped presenting.
     profile.EndFrame(false);
     LogInfoQueue();
