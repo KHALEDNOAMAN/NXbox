@@ -280,6 +280,14 @@ Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info, G
         (resource->handle->GetDesc().Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)) {
         flags |= VideoCommon::ImageFlagBits::AcceleratedUpload;
     }
+    // CPU ASTC decoding runs inline on the GPU thread: Wonder spent up to 1.3 s of every 5 s
+    // there while streaming a new area. accelerate_astc=2 moves it to the texture decode worker;
+    // the texture samples empty until its upload lands at a later frame tick.
+    if (True(flags & VideoCommon::ImageFlagBits::Converted) &&
+        False(flags & VideoCommon::ImageFlagBits::AcceleratedUpload) &&
+        Settings::values.accelerate_astc.GetValue() == Settings::AstcDecodeMode::CpuAsynchronous) {
+        flags |= VideoCommon::ImageFlagBits::AsynchronousDecode;
+    }
 }
 void Image::UploadMemory(const StagingBufferRef& map,
                          std::span<const VideoCommon::BufferImageCopy> copies) {

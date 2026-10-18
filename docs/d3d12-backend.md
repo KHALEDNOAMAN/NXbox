@@ -269,6 +269,7 @@ change emulation behavior and are intended only to isolate device removal:
 | `NXBOX_D3D12_NO_PREWARM` | Set to `1` to disable background disk-recipe PSO prewarming. By default async workers rebuild cached requests at lowest priority; ready results share the runtime cache. |
 | `NXBOX_D3D12_NO_PSO_LIBRARY` | Skip native pipeline-library creation/load/store/serialization; keep direct PSOs and validated DXIL/recipe caching. |
 | `NXBOX_D3D12_GPU_ASTC` | Enable the GPU ASTC decoder (off by default: it corrupts small textures such as Mii face parts; the CPU conversion path is used instead). |
+| `accelerate_astc=2` (in `eden_settings.txt`) | Decode CPU ASTC on the texture decode worker instead of inline on the GPU thread; a texture samples empty until its upload lands at a later frame tick. Off by default until measured on the console. |
 | `NXBOX_D3D12_NO_COMPUTE` | Skip guest compute dispatches; retain helper compute and GPU work accounting. |
 | `NXBOX_D3D12_NO_DRAWS` | Skip direct/indirect guest draws; retain clears, compositor presentation and GPU work accounting. |
 | `NXBOX_D3D12_NO_QUERIES` | Disable native query heaps, begin/end/resolve, timestamps and host predication; return zero counters/timestamps and retain guest report writes. |

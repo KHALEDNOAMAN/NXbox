@@ -68,6 +68,7 @@ struct AsyncDecodeContext {
     boost::container::small_vector<BufferImageCopy, 16> copies;
     std::mutex mutex;
     std::atomic_bool complete;
+    bool cancelled{}; ///< The image was deleted before the upload; GPU thread only.
 };
 
 using TextureCacheGPUMap = ::Common::unordered_map<u64, std::vector<ImageId>, Common::IdentityHash<u64>>;
@@ -539,9 +540,11 @@ private:
     u64 modification_tick = 0;
     u64 frame_tick = 0;
 
+    std::vector<std::unique_ptr<AsyncDecodeContext>> async_decodes;
+    // Declared after async_decodes so it is joined first: a decode still running at shutdown
+    // writes into its context.
     Common::ThreadWorker texture_decode_worker{1, "TextureDecoder", {},
                                                Common::ThreadPlacement::Efficiency};
-    std::vector<std::unique_ptr<AsyncDecodeContext>> async_decodes;
 
     std::deque<PendingUnswizzle> unswizzle_queue;
     u8 current_unswizzle_frame;

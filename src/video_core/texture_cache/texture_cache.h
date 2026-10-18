@@ -1726,6 +1726,11 @@ void TextureCache<P>::TickAsyncDecode() {
             ++i;
             continue;
         }
+        if (async_decode->cancelled) {
+            lock.unlock();
+            i = async_decodes.erase(i);
+            continue;
+        }
         Image& image = slot_images[async_decode->image_id];
         auto staging = runtime.UploadStagingBuffer(MapSizeBytes(image));
         std::memcpy(staging.mapped_span.data(), async_decode->decoded_data.data(),
@@ -1734,6 +1739,8 @@ void TextureCache<P>::TickAsyncDecode() {
         NxboxUpload::Record(NxboxUpload::Event::AstcUploaded);
         image.flags &= ~ImageFlagBits::IsDecoding;
         has_uploads = true;
+        // Erasing destroys the mutex, so it must not still be held.
+        lock.unlock();
         i = async_decodes.erase(i);
     }
     if (has_uploads) {
@@ -2685,6 +2692,14 @@ void TextureCache<P>::DeleteImage(ImageId image_id, bool immediate_delete) {
     }
     ASSERT_MSG(False(image.flags & ImageFlagBits::Tracked), "Image was not untracked");
     ASSERT_MSG(False(image.flags & ImageFlagBits::Registered), "Image was not unregistered");
+    if (True(image.flags & ImageFlagBits::IsDecoding)) {
+        // The slot can be reused before the decode finishes; its upload must not land there.
+        for (const auto& async_decode : async_decodes) {
+            if (async_decode->image_id == image_id) {
+                async_decode->cancelled = true;
+            }
+        }
+    }
 
     // Mark render targets as dirty
     auto& dirty = maxwell3d->dirty.flags;
