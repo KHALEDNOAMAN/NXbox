@@ -63,6 +63,7 @@
 #include "eden_uwp/jit_dualmap_probe.h"
 #include "eden_uwp/applet_boot.h"
 #include "eden_uwp/await_bounded.h"
+#include "eden_uwp/crash_logger.h"
 #include "eden_uwp/diagnostic.h"
 #include "eden_uwp/diagnostic_report.h"
 #include "eden_uwp/game_download.h"
@@ -913,9 +914,13 @@ void RunGame(MesaWindow& window, const std::string& bundled_path, const std::ato
                     Diagnostic("JIT_CACHE phase=unavailable hits=0 misses=0 bytes=0");
                 }
             }
+            // The crash log is never rotated, so one file names the game behind each process
+            // across a whole testing session; the diagnostic log only keeps the last few games.
+            CrashEvent("game title=" + title);
             Diagnostic(fmt::format("RESOLUTION title={} resolution_setup={}", title,
                                    static_cast<int>(Settings::values.resolution_setup.GetValue())));
         } else {
+            CrashEvent("game title=unknown");
             Diagnostic(fmt::format("RESOLUTION title=unknown resolution_setup={}",
                                    static_cast<int>(Settings::values.resolution_setup.GetValue())));
         }

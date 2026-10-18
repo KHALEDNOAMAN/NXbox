@@ -12,6 +12,13 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class CrashFormatTests(unittest.TestCase):
+    def test_game_session_names_its_title_in_the_crash_log(self):
+        # A tester runs many games in a row and sends one crash log; each process must name its
+        # game there, because the diagnostic log rotates the earlier games away.
+        source = (ROOT / "src/eden_uwp/game_session.cpp").read_text()
+        self.assertIn('CrashEvent("game title=" + title);', source)
+        self.assertIn('CrashEvent("game title=unknown");', source)
+
     def test_fixed_storage_addresses_and_exception_codes(self):
         compiler = shutil.which("clang++") or shutil.which("g++")
         self.assertIsNotNone(compiler, "A host C++ compiler is required")
