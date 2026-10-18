@@ -29,6 +29,7 @@
 #include "core/core_timing.h"
 #include "core/cpu_manager.h"
 #include "core/crypto/key_manager.h"
+#include "core/file_sys/nsz.h"
 #include "core/file_sys/registered_cache.h"
 #include "core/file_sys/vfs/vfs_real.h"
 #include "core/hle/service/am/applet_manager.h"
@@ -259,6 +260,25 @@ extern "C" SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv) {
     state->system.SetFilesystem(std::make_shared<FileSys::RealVfsFilesystem>());
     state->system.GetFileSystemController().CreateFactories(*state->system.GetFilesystem());
     state->system.GetUserChannel().clear();
+
+    // The core loads NSPs only; an .nsz is decompressed once to a sibling .nsp, as the Xbox
+    // frontend does, and later runs reuse it.
+    if (lp.filepath.ends_with(".nsz")) {
+        auto& vfs = *state->system.GetFilesystem();
+        const std::string nsp = lp.filepath.substr(0, lp.filepath.size() - 4) + ".nsp";
+        if (!vfs.OpenFile(nsp, FileSys::OpenMode::Read)) {
+            const auto source = vfs.OpenFile(lp.filepath, FileSys::OpenMode::Read);
+            const auto target = vfs.CreateFile(nsp + ".part", FileSys::OpenMode::ReadWrite);
+            std::string error;
+            if (!source || !target || !FileSys::ConvertNszToNsp(source, target, {}, &error) ||
+                !vfs.MoveFile(nsp + ".part", nsp)) {
+                LOG_CRITICAL(Frontend, "Failed to convert {} to an NSP: {}", lp.filepath, error);
+                vfs.DeleteFile(nsp + ".part");
+                return SDL_APP_FAILURE;
+            }
+        }
+        lp.filepath = nsp;
+    }
 
     Service::AM::FrontendAppletParameters load_parameters{
         .applet_id = Service::AM::AppletId::Application,
