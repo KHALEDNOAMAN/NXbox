@@ -137,9 +137,13 @@ int main() {
         source = (ROOT / "src/video_core/query_cache/query_cache.h").read_text()
         marker = "template <typename Traits>\nvoid QueryCacheBase<Traits>::CounterReport"
         method = marker + source.split(marker, 1)[1].split("template <typename Traits>", 1)[0]
+        runtime = "struct Runtime { bool fast{}; bool FastQueries() const { return fast; } };"
+        self.assertIn(runtime, DRIVER)
         driver = DRIVER.replace(
-            "struct Runtime {};",
+            runtime,
             """struct Runtime {
+                bool fast{};
+                bool FastQueries() const { return fast; }
                 int pending=0,written=0,invalidated=0;
                 void ReportPending() { ++pending; }
                 void ReportCompleted(bool bad) {

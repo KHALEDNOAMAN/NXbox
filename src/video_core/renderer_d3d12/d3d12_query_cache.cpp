@@ -644,13 +644,15 @@ QueryCacheRuntime::CounterResult QueryCacheRuntime::ReadCounter(QueryType type, 
         context.Transition(impl->gpu_counters, D3D12_RESOURCE_STATE_COPY_SOURCE);
         context.Retain(impl->gpu_counters);
         context.MarkWork("query readback/copy");
-        context.BeforeCopyWrite(result.buffer, result.offset, 2 * sizeof(u64));
-        auto* commands = context.Commands();
-        commands->CopyBufferRegion(result.buffer->handle.Get(), result.offset,
-                                   impl->gpu_counters->handle.Get(), offset, sizeof(u64));
-        commands->CopyBufferRegion(result.buffer->handle.Get(), result.offset + sizeof(u64),
-                                   impl->gpu_counters->handle.Get(), CounterBytes + offset,
-                                   sizeof(u64));
+        context.BeforeCopyWrite(result.buffer, result.offset, sizeof(u64));
+        context.Commands()->CopyBufferRegion(result.buffer->handle.Get(), result.offset,
+                                             impl->gpu_counters->handle.Get(), offset,
+                                             sizeof(u64));
+        context.BeforeCopyWrite(result.buffer, result.offset + sizeof(u64), sizeof(u64));
+        context.Commands()->CopyBufferRegion(result.buffer->handle.Get(),
+                                             result.offset + sizeof(u64),
+                                             impl->gpu_counters->handle.Get(),
+                                             CounterBytes + offset, sizeof(u64));
         context.Profile().Count(FrameCount::FastQueryReports);
         context.Profile().Count(FrameCount::GpuResolvedQueryReports);
         return {0, result};

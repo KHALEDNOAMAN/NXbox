@@ -95,6 +95,8 @@ class CopyWriteHazards(unittest.TestCase):
             "d3d12_query_cache.cpp": [
                 "gpu_counters, 0, CounterBytes * 2",
                 "result.buffer, result.offset, 8",
+                "result.buffer, result.offset, sizeof(u64)",
+                "result.buffer, result.offset + sizeof(u64), sizeof(u64)",
                 "result.buffer, result.offset, 8",
                 "resource, destination, size",
                 "impl->predicate, 0, 8",
