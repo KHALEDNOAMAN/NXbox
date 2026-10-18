@@ -22,7 +22,7 @@ IDisplayController::IDisplayController(Core::System& system_, std::shared_ptr<Ap
         {3, nullptr, "GetCallerAppletCaptureImage"},
         {4, nullptr, "UpdateCallerAppletCaptureImage"},
         {5, D<&IDisplayController::GetLastForegroundCaptureImageEx>, "GetLastForegroundCaptureImageEx"},
-        {6, nullptr, "GetLastApplicationCaptureImageEx"},
+        {6, D<&IDisplayController::GetLastApplicationCaptureImageEx>, "GetLastApplicationCaptureImageEx"},
         {7, D<&IDisplayController::GetCallerAppletCaptureImageEx>, "GetCallerAppletCaptureImageEx"},
         {8, D<&IDisplayController::TakeScreenShotOfOwnLayer>, "TakeScreenShotOfOwnLayer"},
         {9, nullptr, "CopyBetweenCaptureBuffers"},
@@ -53,6 +53,14 @@ IDisplayController::IDisplayController(Core::System& system_, std::shared_ptr<Ap
 IDisplayController::~IDisplayController() = default;
 
 Result IDisplayController::GetLastForegroundCaptureImageEx(
+    Out<bool> out_was_written, OutBuffer<BufferAttr_HipcMapAlias> out_image_data) {
+    LOG_WARNING(Service_AM, "(STUBBED) called");
+    *out_was_written = true;
+    R_SUCCEED();
+}
+
+// The player-select applet asks for the game's last frame as its background; a blank image is enough.
+Result IDisplayController::GetLastApplicationCaptureImageEx(
     Out<bool> out_was_written, OutBuffer<BufferAttr_HipcMapAlias> out_image_data) {
     LOG_WARNING(Service_AM, "(STUBBED) called");
     *out_was_written = true;
