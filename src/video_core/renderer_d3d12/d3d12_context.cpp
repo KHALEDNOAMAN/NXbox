@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <mutex>
@@ -29,6 +30,7 @@
 #include "video_core/renderer_d3d12/d3d12_descriptor.h"
 #include "video_core/renderer_d3d12/d3d12_footprint.h"
 #include "video_core/renderer_d3d12/d3d12_ring_allocator.h"
+#include "video_core/renderer_d3d12/d3d12_shader_probe.h"
 
 namespace D3D12 {
 bool BisectEnabled(const char* name) noexcept {
@@ -825,8 +827,15 @@ Context::Context() {
                                     nullptr, IID_PPV_ARGS(&commands)),
           "CreateCommandList", device.Get());
     Check(commands->Close(), "initial Close", device.Get());
+    if (const auto* directory = std::getenv("NXBOX_D3D12_SHADER_PROBE_DIR");
+        directory && *directory) {
+        shader_probe_stop = StartShaderProbe(device.Get(), directory,
+                                             std::getenv("NXBOX_D3D12_SHADER_PROBE_TIMEOUT_S"));
+    }
 }
 Context::~Context() {
+    if (shader_probe_stop)
+        shader_probe_stop->store(true);
     try {
         Finish(FrameCount::ForcedSubmitLifecycle);
     } catch (const std::exception& error) {
