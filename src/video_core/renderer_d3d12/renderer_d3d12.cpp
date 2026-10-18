@@ -275,6 +275,8 @@ struct RendererD3D12::Impl {
             gpu_handle.ptr += static_cast<UINT64>(slot++) * srv_stride;
             context.Device()->CreateShaderResourceView(texture.resource->handle.Get(),
                                                        &texture.view, cpu);
+            TraceApiCall(context.Device(), "CreateShaderResourceView(present)",
+                         texture.resource->handle.Get(), &texture.view, sizeof(texture.view));
             const auto resource_desc = texture.resource->handle->GetDesc();
             const auto crop = layer.crop_rect.IsEmpty()
                                   ? Common::Rectangle<int>{0, 0, static_cast<int>(layer.width),

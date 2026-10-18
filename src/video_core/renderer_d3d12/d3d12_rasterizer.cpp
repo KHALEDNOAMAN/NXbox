@@ -2661,6 +2661,8 @@ void RasterizerD3D12::DrawTexture() {
         descriptors.WriteNullCbv(tables, 0);
         context.Device()->CreateShaderResourceView(sampled->handle.Get(), &description,
                                                    tables.Slot(1));
+        TraceApiCall(context.Device(), "CreateShaderResourceView(copy)", sampled->handle.Get(),
+                     &description, sizeof(description));
         descriptors.WriteNullUav(tables, 2);
         descriptors.WriteSampler(sampler_table, 0, *sampler, false);
         descriptors.CreateRtv(rtv, target);
@@ -2844,6 +2846,8 @@ void RasterizerD3D12::Clear(u32 layer_count) try {
                 }
                 context.Device()->CreateDepthStencilView(attachment.resource->handle.Get(), &desc,
                                                          attachment.descriptor);
+                TraceApiCall(context.Device(), "CreateDepthStencilView(layer)",
+                             attachment.resource->handle.Get(), &desc, sizeof(desc));
             } else {
                 attachment.descriptor = descriptors.AllocateRtv(1);
                 attachment.format = srv.Format;
@@ -2858,6 +2862,8 @@ void RasterizerD3D12::Clear(u32 layer_count) try {
                 }
                 context.Device()->CreateRenderTargetView(attachment.resource->handle.Get(), &desc,
                                                          attachment.descriptor);
+                TraceApiCall(context.Device(), "CreateRenderTargetView(layer)",
+                             attachment.resource->handle.Get(), &desc, sizeof(desc));
             }
             return true;
         };

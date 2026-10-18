@@ -273,6 +273,36 @@ void LogDeviceDred(ID3D12Device* device) noexcept {
     }
 }
 } // namespace
+void TraceApiCall(ID3D12Device* device, const char* call, ID3D12Resource* resource,
+                  const void* desc, size_t desc_size) noexcept {
+    static std::atomic<bool> reported{false};
+    if (!device || !BisectEnabled("NXBOX_D3D12_SUBMIT_TRACE") || reported.load(std::memory_order_relaxed))
+        return;
+    const HRESULT removed = device->GetDeviceRemovedReason();
+    if (SUCCEEDED(removed) || reported.exchange(true))
+        return;
+    try {
+        std::string args;
+        const auto* bytes = static_cast<const u8*>(desc);
+        for (size_t i = 0; i < desc_size; i += 4) {
+            u32 word = 0;
+            std::memcpy(&word, bytes + i, std::min<size_t>(4, desc_size - i));
+            args += fmt::format("{}{:08x}", i ? " " : "", word);
+        }
+        std::string target = "null";
+        if (resource) {
+            const auto r = resource->GetDesc();
+            target = fmt::format("dim={} {}x{}x{} mips={} format={} samples={} flags={:#x}",
+                                 static_cast<int>(r.Dimension), r.Width, r.Height,
+                                 r.DepthOrArraySize, r.MipLevels, static_cast<int>(r.Format),
+                                 r.SampleDesc.Count, static_cast<u32>(r.Flags));
+        }
+        Diagnostic(fmt::format("D3D12_API_TRACE removed={:#010x} after={} resource=[{}] desc=[{}]",
+                               static_cast<u32>(removed), call, target, args));
+    } catch (...) {
+        Diagnostic("D3D12_API_TRACE removed after a void call (details unavailable)");
+    }
+}
 void Check(HRESULT result, const char* operation, ID3D12Device* device) {
     if (FAILED(result)) {
         const auto message = fmt::format(

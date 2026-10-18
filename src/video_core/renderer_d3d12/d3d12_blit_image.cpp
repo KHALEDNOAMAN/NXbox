@@ -445,6 +445,8 @@ struct BlitImageHelper::Impl {
             srv.Texture2DArray.ArraySize = 1;
         }
         context.Device()->CreateShaderResourceView(src.resource->handle.Get(), &srv, cpu);
+        TraceApiCall(context.Device(), "CreateShaderResourceView(blit)", src.resource->handle.Get(),
+                     &srv, sizeof(srv));
         cpu.ptr += context.Device()->GetDescriptorHandleIncrementSize(
             D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         srv.Format = src.format.planes > 1 ? StencilFormat(src.format) : DXGI_FORMAT_R8G8B8A8_UINT;
@@ -460,6 +462,8 @@ struct BlitImageHelper::Impl {
         }
         context.Device()->CreateShaderResourceView(
             src.format.planes > 1 ? src.resource->handle.Get() : nullptr, &srv, cpu);
+        TraceApiCall(context.Device(), "CreateShaderResourceView(blit stencil)",
+                     src.format.planes > 1 ? src.resource->handle.Get() : nullptr, &srv, sizeof(srv));
         const auto target = descriptors->target->GetCPUDescriptorHandleForHeapStart();
         if (dst.format.depth) {
             D3D12_DEPTH_STENCIL_VIEW_DESC dsv{};
@@ -472,6 +476,8 @@ struct BlitImageHelper::Impl {
                 dsv.Texture2DArray = {dst.level, dst.layer, 1};
             }
             context.Device()->CreateDepthStencilView(dst.resource->handle.Get(), &dsv, target);
+            TraceApiCall(context.Device(), "CreateDepthStencilView(blit)", dst.resource->handle.Get(),
+                         &dsv, sizeof(dsv));
         } else {
             D3D12_RENDER_TARGET_VIEW_DESC rtv{};
             rtv.Format = static_cast<DXGI_FORMAT>(dst.format.view_format);
@@ -483,6 +489,8 @@ struct BlitImageHelper::Impl {
                 rtv.Texture2DArray = {dst.level, dst.layer, 1, 0};
             }
             context.Device()->CreateRenderTargetView(dst.resource->handle.Get(), &rtv, target);
+            TraceApiCall(context.Device(), "CreateRenderTargetView(blit)", dst.resource->handle.Get(),
+                         &rtv, sizeof(rtv));
         }
         Constants constants{};
         constants.dst_origin = {static_cast<float>(dst_region.start.x),

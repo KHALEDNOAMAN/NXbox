@@ -376,6 +376,11 @@ bool DxcStrictEnabled() noexcept;
 bool AsyncPsoEnabled() noexcept;
 void Check(HRESULT result, const char* operation, ID3D12Device* device = nullptr);
 void CheckPipeline(HRESULT result, const char* operation, ID3D12Device* device, u64 hash);
+// NXBOX_D3D12_SUBMIT_TRACE=1 only: call right after a D3D12 call that returns nothing (view and
+// descriptor creation). The Xbox runtime removes the device on an invalid call instead of failing
+// it, so the first call after which the device is gone is logged once with its arguments.
+void TraceApiCall(ID3D12Device* device, const char* call, ID3D12Resource* resource,
+                  const void* desc = nullptr, size_t desc_size = 0) noexcept;
 struct MemoryBudget {
     std::atomic<u64> used{};
     static constexpr u64 Limit = 512ULL << 20;

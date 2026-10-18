@@ -302,6 +302,7 @@ void D3D12DescriptorAllocator::WriteCached(D3D12_DESCRIPTOR_HEAP_TYPE type,
             D3D12_CONSTANT_BUFFER_VIEW_DESC cbv{};
             std::memcpy(&cbv, desc, sizeof(cbv));
             context.Device()->CreateConstantBufferView(cbv.BufferLocation ? &cbv : nullptr, handle);
+            TraceApiCall(context.Device(), "CreateConstantBufferView", nullptr, &cbv, sizeof(cbv));
             break;
         }
         case 1: {
@@ -309,6 +310,8 @@ void D3D12DescriptorAllocator::WriteCached(D3D12_DESCRIPTOR_HEAP_TYPE type,
             std::memcpy(&srv, desc, sizeof(srv));
             context.Device()->CreateShaderResourceView(resource ? resource->handle.Get() : nullptr,
                                                        &srv, handle);
+            TraceApiCall(context.Device(), "CreateShaderResourceView",
+                         resource ? resource->handle.Get() : nullptr, &srv, sizeof(srv));
             break;
         }
         case 2: {
@@ -316,12 +319,15 @@ void D3D12DescriptorAllocator::WriteCached(D3D12_DESCRIPTOR_HEAP_TYPE type,
             std::memcpy(&uav, desc, sizeof(uav));
             context.Device()->CreateUnorderedAccessView(resource ? resource->handle.Get() : nullptr,
                                                         nullptr, &uav, handle);
+            TraceApiCall(context.Device(), "CreateUnorderedAccessView",
+                         resource ? resource->handle.Get() : nullptr, &uav, sizeof(uav));
             break;
         }
         case 3: {
             D3D12_SAMPLER_DESC sampler{};
             std::memcpy(&sampler, desc, sizeof(sampler));
             context.Device()->CreateSampler(&sampler, handle);
+            TraceApiCall(context.Device(), "CreateSampler", nullptr, &sampler, sizeof(sampler));
             break;
         }
         default:
@@ -335,6 +341,7 @@ void D3D12DescriptorAllocator::WriteCached(D3D12_DESCRIPTOR_HEAP_TYPE type,
         found = cache.entries.emplace(key, CachedDescriptor{handle, resource}).first;
     }
     context.Device()->CopyDescriptorsSimple(1, destination, found->second.handle, type);
+    TraceApiCall(context.Device(), "CopyDescriptorsSimple", nullptr, &type, sizeof(type));
     context.Profile().Count(FrameCount::DescriptorCopies);
     slot_contents[destination.ptr] = std::move(key);
 }
@@ -698,6 +705,7 @@ void D3D12DescriptorAllocator::CreateRtv(D3D12_CPU_DESCRIPTOR_HANDLE handle,
         rtv.Texture2DArray = {level, layer, layers, 0};
     }
     context.Device()->CreateRenderTargetView(resource->handle.Get(), &rtv, handle);
+    TraceApiCall(context.Device(), "CreateRenderTargetView", resource->handle.Get(), &rtv, sizeof(rtv));
 }
 
 void D3D12DescriptorAllocator::CreateDsv(D3D12_CPU_DESCRIPTOR_HANDLE handle, const ImageView& view,
@@ -722,6 +730,7 @@ void D3D12DescriptorAllocator::CreateDsv(D3D12_CPU_DESCRIPTOR_HANDLE handle, con
             layer_count ? layer_count : static_cast<UINT>(view.range.extent.layers)};
     }
     context.Device()->CreateDepthStencilView(resource->handle.Get(), &dsv, handle);
+    TraceApiCall(context.Device(), "CreateDepthStencilView", resource->handle.Get(), &dsv, sizeof(dsv));
 }
 bool D3D12DescriptorAllocator::WriteImageUav(const DescriptorTable& table, u32 slot,
                                              const ImageView& view, DXGI_FORMAT format) {
