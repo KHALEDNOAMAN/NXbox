@@ -60,6 +60,10 @@
 #include <windows.h>
 #include <shellapi.h>
 #include "common/windows/timer_resolution.h"
+// windows.h renames these VfsFilesystem members to their W variants.
+#undef CreateFile
+#undef DeleteFile
+#undef MoveFile
 #endif
 
 #ifdef _WIN32
