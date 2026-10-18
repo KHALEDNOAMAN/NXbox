@@ -1452,7 +1452,6 @@ IGraphicsPipeline* PipelineCache::CurrentGraphicsPipeline(const Pso::Framebuffer
                     const auto elapsed = std::chrono::duration<double, std::milli>(
                                              std::chrono::steady_clock::now() - wait_start)
                                              .count();
-                    const auto& regs = maxwell3d->regs;
                     const auto& rt0 = regs.rt[regs.rt_control.Map(0)];
                     Diagnostic(fmt::format(
                         "PSO_WAIT request={:016x} kind=graphics wall_ms={:.3f} status={} thread={} "
