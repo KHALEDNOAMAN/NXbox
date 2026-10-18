@@ -24,6 +24,14 @@ int main() {
         preferred += expected;
     }
     assert(preferred == 11);
+    // NXBOX_SWKBD=hle moves only the keyboard applet to the frontend; other values change nothing.
+    for (unsigned id = 0; id < 256; ++id) {
+        const auto applet = static_cast<AppletId>(id);
+        assert(ForceHleApplet(applet, "hle") == (applet == AppletId::SoftwareKeyboard));
+        assert(!ForceHleApplet(applet, ""));
+        assert(!ForceHleApplet(applet, "lle"));
+        assert(!ForceHleApplet(applet, "HLE"));
+    }
     // Missing firmware and loader failure have the same null guest result.
     for (int prefer = 0; prefer < 2; ++prefer) {
         for (int guest_ok = 0; guest_ok < 2; ++guest_ok) {
@@ -117,6 +125,9 @@ class AppletPolicyTests(unittest.TestCase):
             self.assertLess(body.index("CreateGuestApplet("), body.index("CreateFrontendApplet("))
             self.assertIn("CreateFrontendApplet(", body)
         self.assertIn("return PreferLocalFirmwareApplet(applet_id);", source)
+        uwp = source.split("#ifdef NXBOX_UWP", 1)[1].split("#else", 1)[0]
+        self.assertIn('std::getenv("NXBOX_SWKBD")', uwp)
+        self.assertLess(uwp.index("ForceHleApplet("), uwp.index("return PreferLocalFirmwareApplet("))
         self.assertNotIn("UWP has no firmware-applet UI", source)
 
     def test_recovery_keeps_broker_and_waits_for_hle_completion(self):

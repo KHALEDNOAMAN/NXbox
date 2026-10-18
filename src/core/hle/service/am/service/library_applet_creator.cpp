@@ -4,6 +4,8 @@
 // SPDX-FileCopyrightText: Copyright 2024 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <cstdlib>
+
 #include "common/settings.h"
 #include "core/hle/kernel/k_transfer_memory.h"
 #include "core/hle/service/am/applet_data_broker.h"
@@ -31,6 +33,10 @@ bool ShouldCreateGuestApplet(AppletId applet_id) {
     // (P5R opens it from its network prompt); the frontend sets HLE for it.
     if (applet_id == AppletId::Error &&
         Settings::values.error_applet_mode.GetValue() != Settings::AppletMode::LLE) {
+        return false;
+    }
+    const char* swkbd_override = std::getenv("NXBOX_SWKBD");
+    if (ForceHleApplet(applet_id, swkbd_override != nullptr ? swkbd_override : "")) {
         return false;
     }
     return PreferLocalFirmwareApplet(applet_id);

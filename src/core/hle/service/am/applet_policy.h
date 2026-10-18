@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include <string_view>
+
 #include "core/hle/service/am/am_types.h"
 
 namespace Service::AM {
@@ -26,6 +28,13 @@ constexpr bool PreferLocalFirmwareApplet(AppletId id) {
     default:
         return false;
     }
+}
+
+// NXBOX_SWKBD=hle (LocalState\nxbox_env.txt) keeps the keyboard applet inside the emulator. The
+// frontend answers a name prompt at once, so a scripted run does not have to drive the firmware
+// keyboard with the pad. Unset or any other value leaves the firmware-first policy untouched.
+constexpr bool ForceHleApplet(AppletId id, std::string_view swkbd_override) {
+    return id == AppletId::SoftwareKeyboard && swkbd_override == "hle";
 }
 
 // Keep creation and fallback ordering identical for both library-applet IPC variants.
