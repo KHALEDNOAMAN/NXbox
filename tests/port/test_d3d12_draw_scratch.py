@@ -18,12 +18,14 @@ MOCK = r"""
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 using u8 = std::uint8_t;
 using u32 = std::uint32_t;
 using u64 = std::uint64_t;
 using ResourcePtr = std::shared_ptr<int>;
+inline bool BisectEnabled(const char*) { return false; }
 """
 ALLOCATOR = r"""
 enum class FrameCount { DescriptorTableReuses };
@@ -51,7 +53,9 @@ struct D3D12DescriptorAllocator {
     u32 allocations = 0, writes = 0;
     DescriptorTable AllocateViews(u32) { return {++allocations}; }
     DescriptorTable AllocateSamplers(u32) { return {++allocations}; }
-    void WriteCached(int, const ResourcePtr&, u32, const void*, u32, u32) { ++writes; }
+    struct CopyBatch {};
+    void WriteCached(int, const ResourcePtr&, u32, const void*, u32, u32, CopyBatch*) { ++writes; }
+    void FlushCopies(int, CopyBatch&) {}
     bool CanReuseDrawTable(const DescriptorPlan&, bool = false) const;
     DescriptorTable FinishDrawTable(DescriptorPlan&, bool = false);
 };
