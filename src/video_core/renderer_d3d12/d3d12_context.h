@@ -464,6 +464,10 @@ public:
     void InvalidateRecordedState() {
         ++recording_generation;
     }
+    // Like InvalidateRecordedState for the RecordedDrawState::Category bits in `categories` only.
+    void ForgetRecordedState(std::uint32_t categories) {
+        DrawState().Forget(categories);
+    }
     RecordedDrawState& DrawState() {
         recorded_state.Refresh(recording_generation);
         return recorded_state;

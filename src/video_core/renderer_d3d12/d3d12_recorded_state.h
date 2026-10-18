@@ -79,6 +79,25 @@ struct RecordedDrawState {
     RecordedValue<std::array<float, 2>> depth_bounds;
     RecordedArray<D3D12_STREAM_OUTPUT_BUFFER_VIEW, 4> stream_output;
 
+    // One bit per tracked member, for Forget().
+    enum Category : std::uint32_t {
+        kHeaps = 1u << 0,
+        kRootSignature = 1u << 1,
+        kPipeline = 1u << 2,
+        kTopology = 1u << 3,
+        kRootTables = 1u << 4,
+        kRootCbvs = 1u << 5,
+        kRootConstants = 1u << 6,
+        kTargets = 1u << 7,
+        kViewports = 1u << 8,
+        kScissors = 1u << 9,
+        kVertices = 1u << 10,
+        kIndex = 1u << 11,
+        kStencil = 1u << 12,
+        kBlend = 1u << 13,
+        kDepthBounds = 1u << 14,
+        kStreamOutput = 1u << 15,
+    };
     void Refresh(std::uint64_t current_generation) {
         if (generation != current_generation) {
             *this = {};
@@ -87,6 +106,41 @@ struct RecordedDrawState {
     }
     void ClearRootArguments() {
         root_args = {};
+    }
+    // Makes the next draw record the selected members again and keeps the others.
+    void Forget(std::uint32_t categories) {
+        if (categories & kHeaps)
+            heaps = {};
+        if (categories & kRootSignature)
+            root_signature = {};
+        if (categories & kPipeline)
+            pipeline = {};
+        if (categories & kTopology)
+            topology = {};
+        if (categories & kRootTables)
+            root_args.tables = {};
+        if (categories & kRootCbvs)
+            root_args.cbvs = {};
+        if (categories & kRootConstants)
+            root_args.constants = {};
+        if (categories & kTargets)
+            targets = {};
+        if (categories & kViewports)
+            viewports = {};
+        if (categories & kScissors)
+            scissors = {};
+        if (categories & kVertices)
+            vertices = {};
+        if (categories & kIndex)
+            index = {};
+        if (categories & kStencil)
+            stencil = {};
+        if (categories & kBlend)
+            blend = {};
+        if (categories & kDepthBounds)
+            depth_bounds = {};
+        if (categories & kStreamOutput)
+            stream_output = {};
     }
 };
 } // namespace D3D12

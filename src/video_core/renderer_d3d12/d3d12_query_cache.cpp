@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <stdexcept>
@@ -36,6 +37,15 @@ constexpr u64 SOOffset = PipelineOffset + sizeof(D3D12_QUERY_DATA_PIPELINE_STATI
 constexpr u64 ResultStride = SOOffset + 4 * sizeof(D3D12_QUERY_DATA_SO_STATISTICS);
 constexpr size_t TypeCount = static_cast<size_t>(QueryType::MaxQueryTypes);
 constexpr u64 CounterBytes = TypeCount * 4 * sizeof(u64);
+// Bisect aid: NXBOX_D3D12_QUERY_END_KEEP is a hex mask of RecordedDrawState::Category bits that
+// survive a query end. Unset or 0 invalidates all recorded draw state, as before.
+u32 QueryEndKeptState() {
+    static const u32 mask = [] {
+        const char* value = std::getenv("NXBOX_D3D12_QUERY_END_KEEP");
+        return value ? static_cast<u32>(std::strtoul(value, nullptr, 16)) : 0u;
+    }();
+    return mask;
+}
 // Not tied to GPU accuracy: the default (High) would keep every report on the per-report
 // submit-and-wait path, as Persona 5 Royal showed (641 forced submits per frame).
 bool SynchronousQueries() {
@@ -576,7 +586,10 @@ void QueryCacheRuntime::EndDraw() {
     context.Retain(impl->results);
     if (!impl->synchronous)
         context.Transition(impl->results, D3D12_RESOURCE_STATE_COPY_DEST);
-    context.InvalidateRecordedState();
+    if (const u32 keep = QueryEndKeptState())
+        context.ForgetRecordedState(~keep);
+    else
+        context.InvalidateRecordedState();
     auto* commands = context.Commands();
     const auto end = [&](ID3D12QueryHeap* heap, D3D12_QUERY_TYPE type, u64 offset) {
         commands->EndQuery(heap, type, slot);
