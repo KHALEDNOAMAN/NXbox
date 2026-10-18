@@ -540,6 +540,7 @@ public:
 
 private:
     bool typed_uav_load_additional_formats{};
+    std::shared_ptr<std::atomic<bool>> shader_probe_stop;
     void CrossListCopyBarrier(Resource& resource, u64 tick, u64 offset, u64 size);
 #ifndef NXBOX_UWP
     u64 device_local_memory{};

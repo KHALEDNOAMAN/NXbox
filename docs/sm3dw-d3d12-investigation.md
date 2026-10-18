@@ -61,6 +61,20 @@ Subtract adjacent phase timestamps for translation, HLSL, per-stage DXC, root
 signature, and native PSO durations. Disk recipe persistence after `done` is not
 included in that marker; PSO_WAIT includes the wait for final publication.
 
+## Shader compile probe
+
+- `NXBOX_D3D12_SHADER_PROBE_DIR=<folder>` enables one background probe per process over `*.hlsl` files in name order; absolute paths or paths relative to UWP LocalState are accepted, and unset/empty disables it.
+- `NXBOX_D3D12_SHADER_PROBE_TIMEOUT_S=<seconds>` sets the native compute PSO timeout (default 45; clamped to 1..600; invalid values use 45).
+
+Files may start with `// target: <profile>` (default `cs_6_0`), use entry point
+`main`, and must embed a root signature on `main`. The probe uses the game's DXC
+arguments, including `-Gis` with `NXBOX_D3D12_DXC_STRICT=1`, without reading or
+writing DXIL caches. `SHADER_PROBE` diagnostics report DXC/PSO timing, HRESULT,
+and UWP app memory before/after each variant, followed by result totals.
+Timed-out driver threads retain their resources; the probe stops after four
+timeouts to bound the driver's leaked memory. Shutdown or suspend stops new files
+without waiting for an in-flight compilation.
+
 ## Shadow diagnosis
 
 No artifact establishes the specific shadow-producing pass or its bound depth
