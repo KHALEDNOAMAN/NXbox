@@ -148,16 +148,31 @@ void Gather(EmitContext& ctx, IR::Inst& inst, const IR::Value& index, std::strin
         expression = "asfloat(" + expression + ")";
     ctx.AddF32x4("{} = {};", inst, expression);
 }
+ImageFormat StorageImageFormat(EmitContext& ctx, const IR::TextureInstInfo& info) {
+    return info.type == TextureType::Buffer
+               ? ctx.info.image_buffer_descriptors.at(info.descriptor_index).format
+               : ctx.info.image_descriptors.at(info.descriptor_index).format;
+}
+bool IsSignedImage(EmitContext& ctx, const IR::TextureInstInfo& info) {
+    const auto format = StorageImageFormat(ctx, info);
+    return format == ImageFormat::R8_SINT || format == ImageFormat::R16_SINT;
+}
 u32 ImageComponents(EmitContext& ctx, const IR::TextureInstInfo& info) {
-    const auto format = info.type == TextureType::Buffer
-                            ? ctx.info.image_buffer_descriptors.at(info.descriptor_index).format
-                            : ctx.info.image_descriptors.at(info.descriptor_index).format;
+    const auto format = StorageImageFormat(ctx, info);
+    if (IsSignedImage(ctx, info))
+        return 1;
     if (format == ImageFormat::R32_UINT || format == ImageFormat::R8_UINT ||
         format == ImageFormat::R16_UINT)
         return 1;
     if (format == ImageFormat::R32G32_UINT)
         return 2;
     return 4;
+}
+void CheckImageAtomic(EmitContext& ctx, const IR::TextureInstInfo& info) {
+    if (IsSignedImage(ctx, info))
+        throw NotImplementedException("HLSL signed 8/16-bit image atomics require a 32-bit UAV");
+    if (ImageComponents(ctx, info) != 1)
+        throw NotImplementedException("HLSL image atomics require a scalar UAV");
 }
 } // namespace
 void EmitImageSampleImplicitLod(EmitContext& ctx, IR::Inst& inst, const IR::Value& index,
@@ -271,26 +286,37 @@ void EmitImageGradient(EmitContext& ctx, IR::Inst& inst, const IR::Value& index,
 void EmitImageRead(EmitContext& ctx, IR::Inst& inst, const IR::Value& index,
                    std::string_view coords) {
     const auto info = inst.Flags<IR::TextureInstInfo>();
+    if (StorageImageFormat(ctx, info) == ImageFormat::Typeless &&
+        !ctx.profile.support_typeless_image_loads) {
+        // Match SPIR-V's fallback without emitting an unsupported typed UAV load.
+        ctx.AddU32x4("{} = uint4(0u, 0u, 0u, 0u);", inst);
+        return;
+    }
     const auto image = Texture(ctx, info, index, true);
     const auto components = ImageComponents(ctx, info);
     const auto padding = components == 1 ? ", 0u, 0u, 1u" : components == 2 ? ", 0u, 1u" : "";
-    ctx.AddU32x4("{} = uint4({}[{}]{});", inst, image, IntCoordinates(coords, info.type), padding);
+    const auto load = fmt::format("{}[{}]", image, IntCoordinates(coords, info.type));
+    if (StorageImageFormat(ctx, info) == ImageFormat::Typeless)
+        ctx.AddU32x4("{} = asuint({});", inst, load);
+    else
+        ctx.AddU32x4("{} = uint4({}{});", inst, load, padding);
 }
 void EmitImageWrite(EmitContext& ctx, IR::Inst& inst, const IR::Value& index,
                     std::string_view coords, std::string_view color) {
     const auto info = inst.Flags<IR::TextureInstInfo>();
     const auto components = ImageComponents(ctx, info);
-    ctx.Add("{}[{}] = {}{};", Texture(ctx, info, index, true), IntCoordinates(coords, info.type),
-            color,
-            components == 1   ? ".x"
-            : components == 2 ? ".xy"
-                              : "");
+    auto value = fmt::format("{}{}", color, components == 1 ? ".x" : components == 2 ? ".xy" : "");
+    if (StorageImageFormat(ctx, info) == ImageFormat::Typeless)
+        value = fmt::format("asfloat({})", value);
+    else if (IsSignedImage(ctx, info))
+        value = fmt::format("asint({})", value);
+    ctx.Add("{}[{}] = {};", Texture(ctx, info, index, true), IntCoordinates(coords, info.type),
+            value);
 }
 void EmitImageAtomicIAdd32(EmitContext& ctx, IR::Inst& inst, const IR::Value& index,
                            std::string_view coords, std::string_view value) {
     const auto info = inst.Flags<IR::TextureInstInfo>();
-    if (ImageComponents(ctx, info) != 1)
-        throw NotImplementedException("HLSL image atomics require a scalar UAV");
+    CheckImageAtomic(ctx, info);
     const auto address =
         fmt::format("{}[{}]", Texture(ctx, info, index, true), IntCoordinates(coords, info.type));
     const auto result = ctx.var_alloc.Define(inst, HlslVarType::U32);
@@ -300,8 +326,7 @@ void EmitImageAtomicIAdd32(EmitContext& ctx, IR::Inst& inst, const IR::Value& in
 void EmitImageAtomicSMin32(EmitContext& ctx, IR::Inst& inst, const IR::Value& index,
                            std::string_view coords, std::string_view value) {
     const auto info = inst.Flags<IR::TextureInstInfo>();
-    if (ImageComponents(ctx, info) != 1)
-        throw NotImplementedException("HLSL image atomics require a scalar UAV");
+    CheckImageAtomic(ctx, info);
     const auto address =
         fmt::format("{}[{}]", Texture(ctx, info, index, true), IntCoordinates(coords, info.type));
     const auto result = ctx.var_alloc.Define(inst, HlslVarType::U32);
@@ -315,8 +340,7 @@ void EmitImageAtomicSMin32(EmitContext& ctx, IR::Inst& inst, const IR::Value& in
 void EmitImageAtomicUMin32(EmitContext& ctx, IR::Inst& inst, const IR::Value& index,
                            std::string_view coords, std::string_view value) {
     const auto info = inst.Flags<IR::TextureInstInfo>();
-    if (ImageComponents(ctx, info) != 1)
-        throw NotImplementedException("HLSL image atomics require a scalar UAV");
+    CheckImageAtomic(ctx, info);
     const auto address =
         fmt::format("{}[{}]", Texture(ctx, info, index, true), IntCoordinates(coords, info.type));
     const auto result = ctx.var_alloc.Define(inst, HlslVarType::U32);
@@ -326,8 +350,7 @@ void EmitImageAtomicUMin32(EmitContext& ctx, IR::Inst& inst, const IR::Value& in
 void EmitImageAtomicSMax32(EmitContext& ctx, IR::Inst& inst, const IR::Value& index,
                            std::string_view coords, std::string_view value) {
     const auto info = inst.Flags<IR::TextureInstInfo>();
-    if (ImageComponents(ctx, info) != 1)
-        throw NotImplementedException("HLSL image atomics require a scalar UAV");
+    CheckImageAtomic(ctx, info);
     const auto address =
         fmt::format("{}[{}]", Texture(ctx, info, index, true), IntCoordinates(coords, info.type));
     const auto result = ctx.var_alloc.Define(inst, HlslVarType::U32);
@@ -341,8 +364,7 @@ void EmitImageAtomicSMax32(EmitContext& ctx, IR::Inst& inst, const IR::Value& in
 void EmitImageAtomicUMax32(EmitContext& ctx, IR::Inst& inst, const IR::Value& index,
                            std::string_view coords, std::string_view value) {
     const auto info = inst.Flags<IR::TextureInstInfo>();
-    if (ImageComponents(ctx, info) != 1)
-        throw NotImplementedException("HLSL image atomics require a scalar UAV");
+    CheckImageAtomic(ctx, info);
     const auto address =
         fmt::format("{}[{}]", Texture(ctx, info, index, true), IntCoordinates(coords, info.type));
     const auto result = ctx.var_alloc.Define(inst, HlslVarType::U32);
@@ -352,8 +374,7 @@ void EmitImageAtomicUMax32(EmitContext& ctx, IR::Inst& inst, const IR::Value& in
 void EmitImageAtomicInc32(EmitContext& ctx, IR::Inst& inst, const IR::Value& index,
                           std::string_view coords, std::string_view value) {
     const auto info = inst.Flags<IR::TextureInstInfo>();
-    if (ImageComponents(ctx, info) != 1)
-        throw NotImplementedException("HLSL image atomics require a scalar UAV");
+    CheckImageAtomic(ctx, info);
     const auto address =
         fmt::format("{}[{}]", Texture(ctx, info, index, true), IntCoordinates(coords, info.type));
     const auto result = ctx.var_alloc.Define(inst, HlslVarType::U32);
@@ -367,8 +388,7 @@ void EmitImageAtomicInc32(EmitContext& ctx, IR::Inst& inst, const IR::Value& ind
 void EmitImageAtomicDec32(EmitContext& ctx, IR::Inst& inst, const IR::Value& index,
                           std::string_view coords, std::string_view value) {
     const auto info = inst.Flags<IR::TextureInstInfo>();
-    if (ImageComponents(ctx, info) != 1)
-        throw NotImplementedException("HLSL image atomics require a scalar UAV");
+    CheckImageAtomic(ctx, info);
     const auto address =
         fmt::format("{}[{}]", Texture(ctx, info, index, true), IntCoordinates(coords, info.type));
     const auto result = ctx.var_alloc.Define(inst, HlslVarType::U32);
@@ -382,8 +402,7 @@ void EmitImageAtomicDec32(EmitContext& ctx, IR::Inst& inst, const IR::Value& ind
 void EmitImageAtomicAnd32(EmitContext& ctx, IR::Inst& inst, const IR::Value& index,
                           std::string_view coords, std::string_view value) {
     const auto info = inst.Flags<IR::TextureInstInfo>();
-    if (ImageComponents(ctx, info) != 1)
-        throw NotImplementedException("HLSL image atomics require a scalar UAV");
+    CheckImageAtomic(ctx, info);
     const auto address =
         fmt::format("{}[{}]", Texture(ctx, info, index, true), IntCoordinates(coords, info.type));
     const auto result = ctx.var_alloc.Define(inst, HlslVarType::U32);
@@ -393,8 +412,7 @@ void EmitImageAtomicAnd32(EmitContext& ctx, IR::Inst& inst, const IR::Value& ind
 void EmitImageAtomicOr32(EmitContext& ctx, IR::Inst& inst, const IR::Value& index,
                          std::string_view coords, std::string_view value) {
     const auto info = inst.Flags<IR::TextureInstInfo>();
-    if (ImageComponents(ctx, info) != 1)
-        throw NotImplementedException("HLSL image atomics require a scalar UAV");
+    CheckImageAtomic(ctx, info);
     const auto address =
         fmt::format("{}[{}]", Texture(ctx, info, index, true), IntCoordinates(coords, info.type));
     const auto result = ctx.var_alloc.Define(inst, HlslVarType::U32);
@@ -404,8 +422,7 @@ void EmitImageAtomicOr32(EmitContext& ctx, IR::Inst& inst, const IR::Value& inde
 void EmitImageAtomicXor32(EmitContext& ctx, IR::Inst& inst, const IR::Value& index,
                           std::string_view coords, std::string_view value) {
     const auto info = inst.Flags<IR::TextureInstInfo>();
-    if (ImageComponents(ctx, info) != 1)
-        throw NotImplementedException("HLSL image atomics require a scalar UAV");
+    CheckImageAtomic(ctx, info);
     const auto address =
         fmt::format("{}[{}]", Texture(ctx, info, index, true), IntCoordinates(coords, info.type));
     const auto result = ctx.var_alloc.Define(inst, HlslVarType::U32);
@@ -415,8 +432,7 @@ void EmitImageAtomicXor32(EmitContext& ctx, IR::Inst& inst, const IR::Value& ind
 void EmitImageAtomicExchange32(EmitContext& ctx, IR::Inst& inst, const IR::Value& index,
                                std::string_view coords, std::string_view value) {
     const auto info = inst.Flags<IR::TextureInstInfo>();
-    if (ImageComponents(ctx, info) != 1)
-        throw NotImplementedException("HLSL image atomics require a scalar UAV");
+    CheckImageAtomic(ctx, info);
     const auto address =
         fmt::format("{}[{}]", Texture(ctx, info, index, true), IntCoordinates(coords, info.type));
     const auto result = ctx.var_alloc.Define(inst, HlslVarType::U32);

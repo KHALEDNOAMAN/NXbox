@@ -235,6 +235,43 @@ std::optional<VideoCore::Surface::PixelFormat> PixelFormatFromImageFormat(
     }
 }
 
+bool CanBindStorageImage(Context& context, VideoCore::Surface::PixelFormat format,
+                         Shader::ImageFormat image_format, bool is_read, bool is_written) {
+    if (image_format != Shader::ImageFormat::Typeless &&
+        image_format != Shader::ImageFormat::R8_SINT &&
+        image_format != Shader::ImageFormat::R16_SINT)
+        return true;
+    if (image_format == Shader::ImageFormat::Typeless && is_read &&
+        !context.TypedUavLoadAdditionalFormats()) {
+        // The shader substitutes zero for these reads, as in the SPIR-V backend.
+        static std::atomic<bool> logged{false};
+        if (!logged.exchange(true))
+            Diagnostic(
+                "D3D12 additional typed UAV loads unsupported; typeless image reads return zero");
+        is_read = false;
+    }
+    const auto dxgi_format = static_cast<DXGI_FORMAT>(MaxwellFormat(format).view_format);
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT support{dxgi_format};
+    // float4 UAVs require a floating-point/normalized view. Never reinterpret an integer
+    // guest image as float, or issue an unsupported typed load against its real format.
+    const bool supported =
+        (image_format != Shader::ImageFormat::Typeless ||
+         !VideoCore::Surface::IsPixelFormatInteger(format)) &&
+        (!is_read || context.TypedUavLoadAdditionalFormats()) &&
+        SUCCEEDED(context.Device()->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support,
+                                                        sizeof(support))) &&
+        (support.Support1 & D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW) &&
+        (!is_read || (support.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD)) &&
+        (!is_written || (support.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE));
+    if (!supported) {
+        static std::atomic<bool> logged{false};
+        if (!logged.exchange(true))
+            Diagnostic("D3D12 typeless/signed storage image typed UAV access unsupported; skipping "
+                       "draw/dispatch");
+    }
+    return supported;
+}
+
 D3D12_SRV_DIMENSION SrvDimension(Shader::TextureType type, bool multisample = false) {
     if (multisample)
         return type == Shader::TextureType::ColorArray2D ? D3D12_SRV_DIMENSION_TEXTURE2DMSARRAY
@@ -800,14 +837,21 @@ void RasterizerD3D12::PrepareDraw(bool is_indexed, Func&& draw) {
                                     PixelFormatFromImageFormat(desc.format))
                                 format = *explicit_format;
                         }
+                        if constexpr (requires { desc.format; }) {
+                            if (!CanBindStorageImage(context, format, desc.format, desc.is_read,
+                                                     desc.is_written))
+                                return false;
+                        }
                         buffer_cache.BindGraphicsTextureBuffer(stage, index, view.GpuAddr(),
                                                                view.BufferSize(), format,
                                                                is_written, is_image);
                     }
                 }
+                return true;
             };
-            add_buffers(info->texture_buffer_descriptors, false);
-            add_buffers(info->image_buffer_descriptors, true);
+            if (!add_buffers(info->texture_buffer_descriptors, false) ||
+                !add_buffers(info->image_buffer_descriptors, true))
+                return;
             it += Shader::NumDescriptors(info->texture_descriptors) +
                   Shader::NumDescriptors(info->image_descriptors);
         }
@@ -1558,12 +1602,16 @@ void RasterizerD3D12::PrepareDraw(bool is_indexed, Func&& draw) {
         uav_i = image_start;
         for (const auto& desc : info->image_descriptors) {
             const auto format = PixelFormatFromImageFormat(desc.format);
-            if (!format) {
+            if (!format && desc.format != Shader::ImageFormat::Typeless) {
                 SkipDraw("unsupported graphics storage image format");
                 return;
             }
             for (u32 i = 0; i < desc.count; ++i, ++uav_i) {
                 auto& view = texture_cache.GetImageView((texture_views++)->id);
+                const auto guest_format = format.value_or(view.format);
+                if (!CanBindStorageImage(context, guest_format, desc.format, desc.is_read,
+                                         desc.is_written))
+                    return;
                 if (const auto resource = view.ImageHandle()) {
                     const auto dimension = view.Description().ViewDimension;
                     if (!(resource->handle->GetDesc().Flags &
@@ -1579,7 +1627,7 @@ void RasterizerD3D12::PrepareDraw(bool is_indexed, Func&& draw) {
                 }
                 descriptors.WriteImageUav(
                     uav_table, uav_i, view,
-                    static_cast<DXGI_FORMAT>(MaxwellFormat(*format).view_format));
+                    static_cast<DXGI_FORMAT>(MaxwellFormat(guest_format).view_format));
                 need(view.ImageHandle(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
             }
         }
@@ -2950,10 +2998,14 @@ void RasterizerD3D12::DispatchCompute() try {
         for (u32 i = 0; i < desc.count; ++i) {
             auto& view = texture_cache.GetImageView(view_scratch[view_index++].id);
             const auto format = PixelFormatFromImageFormat(desc.format);
-            if (!format)
+            if (!format && desc.format != Shader::ImageFormat::Typeless)
                 throw std::runtime_error("D3D12 unsupported compute image buffer format");
+            const auto guest_format = format.value_or(view.format);
+            if (!CanBindStorageImage(context, guest_format, desc.format, desc.is_read,
+                                     desc.is_written))
+                return;
             buffer_cache.BindComputeTextureBuffer(texel_index++, view.GpuAddr(), view.BufferSize(),
-                                                  *format, desc.is_written, true);
+                                                  guest_format, desc.is_written, true);
         }
     buffer_cache.UpdateComputeBuffers();
     buffer_cache.BindHostComputeBuffers();
@@ -3032,11 +3084,15 @@ void RasterizerD3D12::DispatchCompute() try {
         for (u32 i = 0; i < desc.count; ++i) {
             auto& view = texture_cache.GetImageView(view_scratch[view_index++].id);
             const auto format = PixelFormatFromImageFormat(desc.format);
-            if (!format)
+            if (!format && desc.format != Shader::ImageFormat::Typeless)
                 throw std::runtime_error("D3D12 unsupported compute storage image format");
+            const auto guest_format = format.value_or(view.format);
+            if (!CanBindStorageImage(context, guest_format, desc.format, desc.is_read,
+                                     desc.is_written))
+                return;
             if (!descriptors.WriteImageUav(
                     uav, uav_index++, view,
-                    static_cast<DXGI_FORMAT>(MaxwellFormat(*format).view_format))) {
+                    static_cast<DXGI_FORMAT>(MaxwellFormat(guest_format).view_format))) {
                 SkipDraw("unsupported compute storage image view");
                 return;
             }

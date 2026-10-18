@@ -800,6 +800,7 @@ Context::Context() {
         device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options)));
     const bool minmax =
         have_options && options.TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_2;
+    typed_uav_load_additional_formats = have_options && options.TypedUAVLoadAdditionalFormats;
     SetMinMaxFilteringSupported(minmax);
     Diagnostic(fmt::format("D3D12 tiled resources tier={} minmax_filtering={}",
                            have_options ? static_cast<int>(options.TiledResourcesTier) : -1,

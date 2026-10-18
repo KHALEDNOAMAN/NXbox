@@ -200,14 +200,13 @@ EmitContext::EmitContext(IR::Program& program, Bindings& bindings, const Profile
     for (const auto& desc : info.image_descriptors) {
         images.push_back({image_binding, desc.count});
         const auto element =
-            (desc.format == ImageFormat::R32_UINT || desc.format == ImageFormat::R8_UINT ||
-             desc.format == ImageFormat::R16_UINT)
+            desc.format == ImageFormat::Typeless                                          ? "float4"
+            : desc.format == ImageFormat::R8_SINT || desc.format == ImageFormat::R16_SINT ? "int"
+            : (desc.format == ImageFormat::R32_UINT || desc.format == ImageFormat::R8_UINT ||
+               desc.format == ImageFormat::R16_UINT)
                 ? "uint"
             : desc.format == ImageFormat::R32G32_UINT ? "uint2"
                                                       : "uint4";
-        if (desc.format == ImageFormat::Typeless || desc.format == ImageFormat::R8_SINT ||
-            desc.format == ImageFormat::R16_SINT)
-            throw NotImplementedException("HLSL typeless/signed storage image format");
         header += RegisterDeclaration(TextureClass(desc.type, true) + "<" + element + ">",
                                       fmt::format("img{}", image_binding), 'u', image_binding,
                                       desc.count);
@@ -217,14 +216,13 @@ EmitContext::EmitContext(IR::Program& program, Bindings& bindings, const Profile
     for (const auto& desc : info.image_buffer_descriptors) {
         image_buffers.push_back({image_binding, desc.count});
         const auto element =
-            (desc.format == ImageFormat::R32_UINT || desc.format == ImageFormat::R8_UINT ||
-             desc.format == ImageFormat::R16_UINT)
+            desc.format == ImageFormat::Typeless                                          ? "float4"
+            : desc.format == ImageFormat::R8_SINT || desc.format == ImageFormat::R16_SINT ? "int"
+            : (desc.format == ImageFormat::R32_UINT || desc.format == ImageFormat::R8_UINT ||
+               desc.format == ImageFormat::R16_UINT)
                 ? "uint"
             : desc.format == ImageFormat::R32G32_UINT ? "uint2"
                                                       : "uint4";
-        if (desc.format == ImageFormat::Typeless || desc.format == ImageFormat::R8_SINT ||
-            desc.format == ImageFormat::R16_SINT)
-            throw NotImplementedException("HLSL typeless/signed storage buffer image format");
         header += RegisterDeclaration(std::string("RWBuffer<") + element + ">",
                                       fmt::format("img{}", image_binding), 'u', image_binding,
                                       desc.count);

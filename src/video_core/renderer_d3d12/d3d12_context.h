@@ -508,6 +508,9 @@ public:
     ID3D12Device* Device() const {
         return device.Get();
     }
+    bool TypedUavLoadAdditionalFormats() const {
+        return typed_uav_load_additional_formats;
+    }
     ID3D12CommandQueue* Queue() const {
         return queue.Get();
     }
@@ -523,6 +526,7 @@ public:
     }
 
 private:
+    bool typed_uav_load_additional_formats{};
     void CrossListCopyBarrier(Resource& resource, u64 tick, u64 offset, u64 size);
 #ifndef NXBOX_UWP
     u64 device_local_memory{};

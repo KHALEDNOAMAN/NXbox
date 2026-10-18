@@ -294,6 +294,73 @@ void ResourceOrderAndCompare() {
           "Shared UAV/SRV counters");
   std::ofstream("hlsl_resources.hlsl") << text;
 }
+void StorageImageFormats() {
+  for (const auto format :
+       {ImageFormat::Typeless, ImageFormat::R8_SINT, ImageFormat::R16_SINT}) {
+    for (const bool buffer : {false, true}) {
+      Fixture f{Stage::Compute};
+      if (buffer)
+        f.program.info.image_buffer_descriptors.push_back({.format = format,
+                                                           .is_written = true,
+                                                           .is_read = true,
+                                                           .count = 1});
+      else
+        f.program.info.image_descriptors.push_back(
+            {.type = TextureType::Color2D,
+             .format = format,
+             .is_written = true,
+             .is_read = true,
+             .count = 1});
+      IR::TextureInstInfo flags{};
+      flags.type.Assign(buffer ? TextureType::Buffer : TextureType::Color2D);
+      flags.image_format.Assign(format);
+      const auto coords = buffer ? IR::Value{0u}
+                                 : f.Add(IR::Opcode::CompositeConstructU32x2,
+                                         {IR::Value{0u}, IR::Value{0u}});
+      const auto color =
+          f.Add(IR::Opcode::ImageRead, {IR::Value{0u}, coords}, flags.raw);
+      f.Add(IR::Opcode::ImageWrite, {IR::Value{0u}, coords, color}, flags.raw);
+      Bindings bindings;
+      Profile profile{};
+      profile.support_typeless_image_loads = true;
+      const auto text = f.Emit(bindings, profile);
+      const bool typeless = format == ImageFormat::Typeless;
+      Contains(text, std::string(buffer ? "RWBuffer<" : "RWTexture2D<") +
+                         (typeless ? "float4> img0" : "int> img0"));
+      if (typeless) {
+        Contains(text, "= asuint(img0[");
+        Contains(text, "] = asfloat(");
+        Bindings fallback_bindings;
+        const auto fallback = f.Emit(fallback_bindings);
+        Contains(fallback, "= uint4(0u, 0u, 0u, 0u);");
+        Require(fallback.find("= asuint(img0[") == fallback.npos,
+                "Unsupported typeless load must return zero");
+        Contains(fallback, "] = asfloat(");
+      } else {
+        Contains(text, ", 0u, 0u, 1u)");
+        Contains(text, "] = asint(");
+        Contains(text, ".x);");
+      }
+      std::ofstream("hlsl_storage_" + std::to_string(static_cast<int>(format)) +
+                    (buffer ? "_buffer.hlsl" : "_texture.hlsl"))
+          << text;
+      // Narrow integer UAVs cannot perform D3D12 32-bit image atomics. Reject
+      // deliberately rather than emitting uint atomic operands against an int
+      // UAV.
+      if (!typeless) {
+        f.Add(IR::Opcode::ImageAtomicIAdd32,
+              {IR::Value{0u}, coords, IR::Value{1u}}, flags.raw);
+        Bindings rejected;
+        try {
+          f.Emit(rejected);
+          throw std::runtime_error("Narrow signed image atomic accepted");
+        } catch (const NotImplementedException &error) {
+          Contains(error.what(), "32-bit UAV");
+        }
+      }
+    }
+  }
+}
 void ArithmeticAndPseudoResults() {
   Fixture f{Stage::Compute};
   f.program.info.uses_int64 = true;
@@ -719,6 +786,7 @@ int main() {
     Compute();
     ControlFlowAndWaves();
     ResourceOrderAndCompare();
+    StorageImageFormats();
     ArithmeticAndPseudoResults();
     ChainedResourceBindings();
     NumericCoverage();

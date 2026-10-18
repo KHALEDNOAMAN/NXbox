@@ -753,6 +753,7 @@ struct TranslationState {
             FALSE;
         host.min_ssbo_alignment = 16;
         host.ApplyDescriptorLimitPolicy();
+        profile.support_typeless_image_loads = options.TypedUAVLoadAdditionalFormats != FALSE;
         profile.support_int64 = host.support_int64;
         profile.support_vertex_instance_id = true;
         profile.support_vote = true;
