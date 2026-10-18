@@ -51,6 +51,12 @@ bool BisectEnabled(const char* name) noexcept {
         cache[used++] = {name, enabled};
     return enabled;
 }
+std::uint32_t FlushDrawsKnob() noexcept {
+    char value[16]{};
+    const auto length = GetEnvironmentVariableA("NXBOX_D3D12_FLUSH_DRAWS", value, sizeof(value));
+    // 0 is unset; a return that does not fit means too many characters for a 32-bit number.
+    return length > 0 && length < sizeof(value) ? ParseFlushDraws(value) : 0;
+}
 bool DxcStrictEnabled() noexcept {
     static const bool enabled = BisectEnabled("NXBOX_D3D12_DXC_STRICT");
     return enabled;
@@ -615,7 +621,8 @@ void FrameProfile::EndFrame(bool presented) {
                                       "fermi_discard_upload_bytes",
                                       "staging_new_resources",
                                       "uniform_snapshot_requests",
-                                      "uniform_snapshot_new_resources"};
+                                      "uniform_snapshot_new_resources",
+                                      "forced_submits_flush_draws"};
         static_assert(names.size() == static_cast<size_t>(FramePhase::Count));
         static_assert(counters.size() == static_cast<size_t>(FrameCount::Count));
         const double elapsed = static_cast<double>(wall - start_wall);
@@ -793,6 +800,7 @@ Context::Context() {
           "NXBOX_D3D12_NO_DRAWS", "NXBOX_D3D12_NO_QUERIES", "NXBOX_D3D12_SUBMIT_TRACE",
           "NXBOX_D3D12_FENCE_BATCHING", "NXBOX_D3D12_BATCH_DESCRIPTOR_COPIES"})
         Diagnostic(fmt::format("D3D12 bisect {}={}", knob, BisectEnabled(knob) ? 1 : 0));
+    Diagnostic(fmt::format("D3D12 flush_draws={}", FlushDrawsKnob()));
     D3D12_FEATURE_DATA_SHADER_MODEL model{D3D_SHADER_MODEL_6_0};
     Check(device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &model, sizeof(model)),
           "shader model support before helper PSOs", device.Get());
@@ -1024,8 +1032,10 @@ void Context::MarkWork(std::string_view label) {
         "timestamp query"};
     if (std::find(state_neutral.begin(), state_neutral.end(), label) == state_neutral.end())
         InvalidateRecordedState();
-    if (label == "guest draws")
+    if (label == "guest draws") {
         profile.Count(FrameCount::Draws);
+        flush_cadence.Drew();
+    }
     if (std::find(work.begin(), work.end(), label) != work.end())
         return;
     work.emplace_back(label);
@@ -1047,6 +1057,7 @@ u64 Context::Submit(FrameCount reason) {
     } failure_flag{submit_failed};
     const FrameProfile::Scope profile_submit{profile, FramePhase::Submit};
     InvalidateRecordedState();
+    flush_cadence.Submitted();
     // QueueFence and FlushCommands can both request the same submission.
     // Empty requests reuse its value instead of emitting another queue signal.
     if (!recording)
@@ -1114,6 +1125,12 @@ u64 Context::Submit(FrameCount reason) {
     profile.EndFrame(false);
     LogInfoQueue();
     return submitted;
+}
+bool Context::FlushDrawsIfDue() {
+    if (!flush_cadence.Due())
+        return false;
+    Submit(FrameCount::ForcedSubmitFlushDraws);
+    return true;
 }
 void Context::Finish(FrameCount reason) {
     Wait(Submit(reason), "finish");

@@ -489,6 +489,10 @@ ResourcePtr RasterizerD3D12::CopyFeedback(const ResourcePtr& source,
 // happens BEFORE any per-draw state is recorded.
 template <typename Func>
 void RasterizerD3D12::PrepareDraw(bool is_indexed, Func&& draw) {
+    // A guest fence cuts the list between draws; so does this. Nothing of this draw has been
+    // resolved or recorded yet, and the new list rebinds all state (InvalidateRecordedState).
+    if (context.FlushDrawsIfDue())
+        fence_manager.NotifyDeferredSubmit();
     bool trace_submitted = false;
     VideoCommon::SubmissionTrace::Log("host_draw_begin indexed={}", is_indexed);
     SCOPE_EXIT {

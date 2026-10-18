@@ -20,6 +20,7 @@
 #include <unordered_set>
 #include <vector>
 #include "common/gpu_thread_profile.h"
+#include "video_core/renderer_d3d12/d3d12_flush_policy.h"
 
 namespace D3D12 {
 enum class FramePhase : size_t {
@@ -190,6 +191,7 @@ enum class FrameCount : size_t {
     StagingNewResources,
     UniformSnapshotRequests,
     UniformSnapshotNewResources,
+    ForcedSubmitFlushDraws,
     Count
 };
 // Monotonic CPU samples, independent of the host clock API, for exclusive phases.
@@ -373,6 +375,8 @@ namespace D3D12 {
 using Microsoft::WRL::ComPtr;
 void Diagnostic(std::string_view message) noexcept;
 bool BisectEnabled(const char* name) noexcept;
+// NXBOX_D3D12_FLUSH_DRAWS, 0 when unset or not a positive number (see ParseFlushDraws).
+std::uint32_t FlushDrawsKnob() noexcept;
 bool DxcStrictEnabled() noexcept;
 bool AsyncPsoEnabled() noexcept;
 void Check(HRESULT result, const char* operation, ID3D12Device* device = nullptr);
@@ -474,6 +478,9 @@ public:
         return changed;
     }
     u64 Submit(FrameCount reason = FrameCount::ForcedSubmitOther);
+    // Between draws: submits the open list once it holds NXBOX_D3D12_FLUSH_DRAWS recorded draws.
+    // Returns true when it did, so the caller can wake the fencing thread like any other submit.
+    bool FlushDrawsIfDue();
     void MarkWork(std::string_view label);
     void Finish(FrameCount reason = FrameCount::ForcedSubmitOther);
     void ReportFailure(const std::exception& error) noexcept;
@@ -587,6 +594,7 @@ private:
     std::atomic<bool> submit_failed{};
     bool recording{};
     u64 recording_generation{};
+    DrawFlushCadence flush_cadence{FlushDrawsKnob()};
     RecordedDrawState recorded_state;
     std::shared_ptr<MemoryBudget> budget = std::make_shared<MemoryBudget>();
     struct Batch {
