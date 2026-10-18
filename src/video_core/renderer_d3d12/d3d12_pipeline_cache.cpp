@@ -10,6 +10,7 @@
 #include <exception>
 #include <fstream>
 #include <limits>
+#include <optional>
 #include <regex>
 #include <set>
 #include <stdexcept>
@@ -1818,6 +1819,14 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     };
     const auto preload =
         async_warmup && wait_for_warmup ? std::make_shared<PreloadProgress>() : nullptr;
+    std::optional<AsyncCache::ScopedBoost> worker_boost;
+    if (preload) {
+        const unsigned hardware_threads = std::thread::hardware_concurrency();
+        const unsigned preload_workers =
+            std::clamp(hardware_threads > 2 ? hardware_threads - 2 : 2u, 2u, 6u);
+        worker_boost.emplace(*async, preload_workers);
+        Diagnostic(fmt::format("D3D12_PSO_PREWARM workers={}", preload_workers));
+    }
     struct WarmupStats {
         std::chrono::steady_clock::time_point start{std::chrono::steady_clock::now()};
         size_t skipped{};

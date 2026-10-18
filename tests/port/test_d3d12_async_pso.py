@@ -143,6 +143,116 @@ int main() {
         while (!stuck_done) std::this_thread::yield();
         std::this_thread::sleep_for(std::chrono::milliseconds{20});
     }
+    // Boost all six compilers, admit two queued jobs, then restore the runtime limits
+    // while those compilers are still busy. Only two may take the next wave of jobs.
+    {
+        Cache boosted{2, 4, std::chrono::seconds{10}};
+        std::promise<void> release_boost, release_runtime;
+        auto boost_gate = release_boost.get_future().share();
+        auto runtime_gate = release_runtime.get_future().share();
+        std::atomic<int> boost_running{}, runtime_running{}, runtime_maximum{};
+        auto runtime_job = [&] {
+            const int current = ++runtime_running;
+            int previous = runtime_maximum.load();
+            while (previous < current &&
+                   !runtime_maximum.compare_exchange_weak(previous, current)) {}
+            runtime_gate.wait();
+            --runtime_running;
+            return std::make_shared<int>(1);
+        };
+        {
+            Cache::ScopedBoost boost{boosted, 6};
+            for (int key = 0; key < 6; ++key)
+                assert(boosted.Submit(key, [&] {
+                    ++boost_running;
+                    boost_gate.wait();
+                    --boost_running;
+                    return std::make_shared<int>(1);
+                }));
+            while (boost_running != 6) std::this_thread::yield();
+            assert(boosted.Submit(6, runtime_job));
+            assert(boosted.Submit(7, runtime_job));
+            assert(!boosted.CanSubmit());
+            assert(!boosted.Submit(8, runtime_job));
+        }
+        assert(boost_running == 6); // Ending a boost never cancels a busy compiler.
+        assert(!boosted.CanSubmit()); // Outstanding work exceeds the restored capacity.
+        release_boost.set_value();
+        for (int key = 0; key < 6; ++key)
+            assert(boosted.WaitFor(key, std::chrono::seconds{2}).status == Cache::Status::Ready);
+        while (runtime_running != 2) std::this_thread::yield();
+        assert(boosted.Submit(8, runtime_job));
+        assert(boosted.Submit(9, runtime_job));
+        assert(!boosted.CanSubmit()); // Exactly four runtime jobs admitted again.
+        assert(!boosted.Submit(10, runtime_job));
+        std::this_thread::sleep_for(std::chrono::milliseconds{50});
+        assert(runtime_running == 2 && runtime_maximum == 2);
+        release_runtime.set_value();
+        for (int key = 6; key < 10; ++key)
+            assert(boosted.WaitFor(key, std::chrono::seconds{2}).status == Cache::Status::Ready);
+        assert(runtime_maximum == 2);
+        // The same parked threads can be boosted again; unwinding restores the base limits.
+        try {
+            Cache::ScopedBoost boost{boosted, 6};
+            throw std::runtime_error("leave preload");
+        } catch (const std::runtime_error&) {}
+        std::promise<void> release_again;
+        auto again_gate = release_again.get_future().share();
+        std::atomic<int> again_running{};
+        for (int key = 10; key < 14; ++key)
+            assert(boosted.Submit(key, [&] {
+                ++again_running;
+                again_gate.wait();
+                --again_running;
+                return std::make_shared<int>(1);
+            }));
+        assert(!boosted.CanSubmit());
+        while (again_running != 2) std::this_thread::yield();
+        std::this_thread::sleep_for(std::chrono::milliseconds{50});
+        assert(again_running == 2);
+        release_again.set_value();
+        for (int key = 10; key < 14; ++key)
+            assert(boosted.WaitFor(key, std::chrono::seconds{2}).status == Cache::Status::Ready);
+    }
+    // Boosted compilers can all stall. The replacement allowance grows with the boost,
+    // stalled jobs still free admission slots, and replacements survive the downgrade.
+    {
+        Cache boosted_stall{2, 4, std::chrono::milliseconds{50}, 4};
+        std::promise<void> release_stalled;
+        auto stalled_gate = release_stalled.get_future().share();
+        std::atomic<int> stalled_running{};
+        {
+            Cache::ScopedBoost boost{boosted_stall, 6};
+            for (int key = 0; key < 6; ++key)
+                assert(boosted_stall.Submit(key, [&] {
+                    ++stalled_running;
+                    stalled_gate.wait();
+                    return std::make_shared<int>(1);
+                }));
+            while (stalled_running != 6) std::this_thread::yield();
+            std::this_thread::sleep_for(std::chrono::milliseconds{100});
+            assert(boosted_stall.Stalled() == 6);
+            assert(boosted_stall.Submit(6, [] { return std::make_shared<int>(2); }));
+            assert(boosted_stall.WaitFor(6, std::chrono::seconds{2}).status == Cache::Status::Ready);
+        }
+        std::promise<void> release_replacements;
+        auto replacement_gate = release_replacements.get_future().share();
+        std::atomic<int> replacements_running{};
+        for (int key = 7; key < 11; ++key)
+            assert(boosted_stall.Submit(key, [&] {
+                ++replacements_running;
+                replacement_gate.wait();
+                return std::make_shared<int>(2);
+            }));
+        assert(!boosted_stall.CanSubmit());
+        while (replacements_running != 2) std::this_thread::yield();
+        release_replacements.set_value();
+        for (int key = 7; key < 11; ++key)
+            assert(boosted_stall.WaitFor(key, std::chrono::seconds{2}).status == Cache::Status::Ready);
+        release_stalled.set_value();
+        for (int key = 0; key < 6; ++key)
+            assert(boosted_stall.WaitFor(key, std::chrono::seconds{2}).status == Cache::Status::Ready);
+    }
     return 0;
 }
 """

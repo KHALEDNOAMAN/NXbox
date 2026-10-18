@@ -30,9 +30,10 @@ constexpr bool CanSkipPendingGraphicsPso(bool enabled, std::uint32_t index_count
 //
 // A driver compile can block forever (BotW has compute shaders the Xbox driver never finishes),
 // and a thread cannot be cancelled. A job running longer than `stall_limit` stops counting
-// against the queue capacity and a replacement worker takes over, up to `max_threads`. Shutdown
-// detaches every busy worker (any of them may never return); each keeps the shared state alive,
-// and Stop() reports how many so the owner can keep what the jobs still reference.
+// against the queue capacity and a replacement worker takes over, up to `max_threads` plus any
+// temporary boost. Shutdown detaches every busy worker (any of them may never return); each keeps
+// the shared state alive, and Stop() reports how many so the owner can keep what the jobs still
+// reference.
 template <typename Key, typename Result, typename Hash = std::hash<Key>>
 class AsyncPsoWorkerPool {
 public:
@@ -49,10 +50,11 @@ public:
                                 Clock::duration stall_limit = std::chrono::seconds{5},
                                 size_t max_threads = 4)
         : state{std::make_shared<State>()} {
-        state->capacity = capacity_;
+        state->capacity = base_capacity = capacity_;
         state->stall_limit = stall_limit;
         base_threads = std::clamp(thread_count, size_t{1}, size_t{3});
         thread_limit = std::max(max_threads, base_threads);
+        state->active_threads = base_threads;
         try {
             std::scoped_lock lock{state->mutex};
             for (size_t i = 0; i < base_threads; ++i)
@@ -62,6 +64,27 @@ public:
             throw;
         }
     }
+    // Keep the guard inside the loading scope; extra workers park when it is destroyed.
+    class ScopedBoost {
+    public:
+        ScopedBoost(AsyncPsoWorkerPool& pool_, size_t thread_count) : pool{pool_} {
+            try {
+                pool.ConfigureWorkers(thread_count);
+            } catch (...) {
+                pool.ResetWorkers();
+                throw;
+            }
+        }
+        ~ScopedBoost() {
+            pool.ResetWorkers();
+        }
+        ScopedBoost(const ScopedBoost&) = delete;
+        ScopedBoost& operator=(const ScopedBoost&) = delete;
+
+    private:
+        AsyncPsoWorkerPool& pool;
+    };
+
     ~AsyncPsoWorkerPool() {
         Stop();
     }
@@ -83,7 +106,7 @@ public:
         state->entries.emplace(key, std::move(entry));
         ++state->pending;
         state->queue.emplace_back(key, std::move(job));
-        state->condition.notify_one();
+        state->condition.notify_all();
         return true;
     }
     /// Drops a prewarm that failed or was cancelled so the runtime can build the key itself.
@@ -153,7 +176,7 @@ public:
 
 private:
     struct State {
-        size_t capacity{}, pending{};
+        size_t capacity{}, pending{}, active_threads{};
         Clock::duration stall_limit{};
         bool stopping{};
         std::mutex mutex;
@@ -165,6 +188,30 @@ private:
         std::vector<std::optional<Key>> running;
     };
 
+    void ConfigureWorkers(size_t thread_count) {
+        std::scoped_lock lock{state->mutex};
+        if (state->stopping)
+            return;
+        state->active_threads = std::max(thread_count, base_threads);
+        state->capacity = std::max(base_capacity, state->active_threads + 2);
+        Admittable();
+        state->condition.notify_all();
+    }
+    void ResetWorkers() {
+        std::scoped_lock lock{state->mutex};
+        state->active_threads = base_threads;
+        state->capacity = base_capacity;
+        state->condition.notify_all();
+    }
+    // Caller holds the mutex. Idle workers above the healthy-worker target stay asleep.
+    static bool CanTakeJob(const State& shared, size_t index) {
+        const auto now = Clock::now();
+        size_t preceding = 0;
+        for (size_t i = 0; i < index; ++i)
+            if (!shared.busy_since[i] || now - *shared.busy_since[i] < shared.stall_limit)
+                ++preceding;
+        return preceding < shared.active_threads;
+    }
     // Caller holds the mutex.
     size_t CountStalled() const {
         const auto now = Clock::now();
@@ -175,14 +222,21 @@ private:
     // Caller holds the mutex. Replaces stalled workers before deciding on admission.
     bool Admittable() {
         const size_t stalled = CountStalled();
-        while (workers.size() - stalled < base_threads && workers.size() < thread_limit)
+        const size_t limit = thread_limit + state->active_threads - base_threads;
+        while (workers.size() - stalled < state->active_threads && workers.size() < limit)
             Spawn();
+        // Existing parked workers may now replace one that stalled.
+        state->condition.notify_all();
         // With every worker stuck, an admitted job would stay Pending forever.
         return workers.size() > stalled && state->pending - stalled < state->capacity;
     }
     // Caller holds the mutex.
     void Spawn() {
         const size_t index = workers.size();
+        // Allocate bookkeeping before starting a thread so allocation failure is safe.
+        workers.reserve(index + 1);
+        state->busy_since.reserve(index + 1);
+        state->running.reserve(index + 1);
         // The new thread blocks on the mutex the caller holds until busy_since has its slot.
         workers.emplace_back([shared = state, index] { Run(*shared, index); });
         state->busy_since.emplace_back();
@@ -193,7 +247,9 @@ private:
             std::pair<Key, Job> item;
             {
                 std::unique_lock lock{state.mutex};
-                state.condition.wait(lock, [&] { return state.stopping || !state.queue.empty(); });
+                state.condition.wait(lock, [&] {
+                    return state.stopping || (!state.queue.empty() && CanTakeJob(state, index));
+                });
                 if (state.stopping)
                     return;
                 item = std::move(state.queue.front());
@@ -225,10 +281,11 @@ private:
                 state.running[index].reset();
             }
             state.finished.notify_all();
+            state.condition.notify_all();
         }
     }
     std::shared_ptr<State> state;
-    size_t base_threads{}, thread_limit{};
+    size_t base_threads{}, thread_limit{}, base_capacity{};
     std::vector<std::thread> workers;
 };
 } // namespace D3D12
