@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstring>
 #include <stdexcept>
+#include <fmt/format.h>
 #include <dxgi1_4.h>
 #include <windows.h>
 #include "common/logging.h"
@@ -49,8 +50,18 @@ struct PresentParameters {
 };
 static_assert(sizeof(PresentParameters) == 32);
 } // namespace
+// NXBOX_D3D12_SWAPCHAIN_BUFFERS=3 adds a third back buffer. With two and vsync, the next frame's
+// composite waits on the queue for the buffer still on screen, and every frame slower than one
+// refresh drops to half rate; a third buffer lets it start at once. Anything else keeps two.
+static UINT SwapchainBuffers() {
+    char value[4]{};
+    const auto length =
+        GetEnvironmentVariableA("NXBOX_D3D12_SWAPCHAIN_BUFFERS", value, sizeof(value));
+    return length == 1 && value[0] == '3' ? 3 : 2;
+}
 struct RendererD3D12::Impl {
-    static constexpr UINT BufferCount = 2;
+    static constexpr UINT MaxBuffers = 3;
+    const UINT buffer_count = SwapchainBuffers();
     static constexpr UINT MaxLayers = 64;
     D3D12::Context context;
     ComPtr<IDXGISwapChain3> swapchain;
@@ -59,8 +70,8 @@ struct RendererD3D12::Impl {
     ComPtr<ID3D12RootSignature> root;
     std::array<ComPtr<ID3D12PipelineState>, 3> pipelines;
     std::array<ComPtr<ID3D12PipelineState>, 3> screenshot_pipelines;
-    std::array<ResourcePtr, BufferCount> buffers;
-    std::array<u64, BufferCount> present_ticks{};
+    std::array<ResourcePtr, MaxBuffers> buffers;
+    std::array<u64, MaxBuffers> present_ticks{};
     u64 present_sequence{};
     UINT rtv_stride{};
     UINT srv_stride{};
@@ -84,7 +95,7 @@ struct RendererD3D12::Impl {
         return handle;
     }
     void AcquireBuffers() {
-        for (UINT i = 0; i < BufferCount; ++i) {
+        for (UINT i = 0; i < buffer_count; ++i) {
             buffers[i] = std::make_shared<Resource>();
             buffers[i]->heap = D3D12_HEAP_TYPE_DEFAULT;
             buffers[i]->state = D3D12_RESOURCE_STATE_PRESENT;
@@ -186,7 +197,7 @@ struct RendererD3D12::Impl {
         desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
         desc.SampleDesc.Count = 1;
         desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-        desc.BufferCount = BufferCount;
+        desc.BufferCount = buffer_count;
         desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
         desc.Scaling = DXGI_SCALING_STRETCH;
         desc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
@@ -208,17 +219,18 @@ struct RendererD3D12::Impl {
         Check(chain.As(&swapchain), "Query IDXGISwapChain3", context.Device());
         D3D12_DESCRIPTOR_HEAP_DESC heap{};
         heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-        heap.NumDescriptors = BufferCount + 1;
+        heap.NumDescriptors = MaxBuffers + 1;
         Check(context.Device()->CreateDescriptorHeap(&heap, IID_PPV_ARGS(&rtv_heap)),
               "Create RTV heap", context.Device());
         rtv_stride = context.Device()->GetDescriptorHandleIncrementSize(heap.Type);
         heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        heap.NumDescriptors = MaxLayers * (BufferCount + 1);
+        heap.NumDescriptors = MaxLayers * (MaxBuffers + 1);
         heap.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         Check(context.Device()->CreateDescriptorHeap(&heap, IID_PPV_ARGS(&srv_heap)),
               "Create SRV heap", context.Device());
         srv_stride = context.Device()->GetDescriptorHandleIncrementSize(heap.Type);
-        Diagnostic("D3D12 swapchain and descriptor heaps created");
+        Diagnostic(
+            fmt::format("D3D12 swapchain and descriptor heaps created buffers={}", buffer_count));
         AcquireBuffers();
         InitializePipeline();
         context.LogInfoQueue();
@@ -238,7 +250,7 @@ struct RendererD3D12::Impl {
         textures.reserve(layers.size());
         for (const auto& layer : layers)
             textures.push_back(rasterizer.FramebufferTexture(layer));
-        if (index < BufferCount)
+        if (index < buffer_count)
             context.WaitSubmitted(present_ticks[index], "present");
         context.MarkWork(layers.empty() ? "init present clear" : "frame present clear/compositor");
         auto* commands = context.Commands();
@@ -321,9 +333,8 @@ struct RendererD3D12::Impl {
         context.Device()->GetCopyableFootprints(&desc, 0, 1, 0, &footprint, nullptr, nullptr,
                                                 &total_bytes);
         const auto readback = context.CreateBuffer(total_bytes, D3D12_HEAP_TYPE_READBACK);
-        context.Device()->CreateRenderTargetView(target->handle.Get(), nullptr, Rtv(BufferCount));
-        Draw(layout, layers, rasterizer, target, Rtv(BufferCount), BufferCount,
-             screenshot_pipelines);
+        context.Device()->CreateRenderTargetView(target->handle.Get(), nullptr, Rtv(MaxBuffers));
+        Draw(layout, layers, rasterizer, target, Rtv(MaxBuffers), MaxBuffers, screenshot_pipelines);
         context.Transition(target, D3D12_RESOURCE_STATE_COPY_SOURCE);
         D3D12_TEXTURE_COPY_LOCATION source{};
         source.pResource = target->handle.Get();
@@ -355,7 +366,7 @@ struct RendererD3D12::Impl {
             present_ticks.fill(0);
             for (auto& buffer : buffers)
                 buffer.reset();
-            Check(swapchain->ResizeBuffers(BufferCount, new_width, new_height,
+            Check(swapchain->ResizeBuffers(buffer_count, new_width, new_height,
                                            DXGI_FORMAT_R8G8B8A8_UNORM, 0),
                   "ResizeBuffers", context.Device());
             width = new_width;
