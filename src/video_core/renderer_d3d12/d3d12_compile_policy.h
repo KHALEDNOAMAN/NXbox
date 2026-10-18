@@ -4,6 +4,7 @@
 
 #include <charconv>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <optional>
@@ -17,6 +18,20 @@ constexpr int ParsePsoWorkerPriority(std::string_view value) {
 inline int PsoWorkerPriority() {
     const char* value = std::getenv("NXBOX_D3D12_PSO_WORKER_PRIORITY");
     return ParsePsoWorkerPriority(value ? value : "");
+}
+inline size_t ParsePrewarmThreads(std::string_view value) {
+    if (value.empty())
+        return 2;
+    unsigned parsed{};
+    const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
+    return result.ec == std::errc{} && result.ptr == value.data() + value.size() && parsed >= 1 &&
+                   parsed <= 6
+               ? parsed
+               : 2;
+}
+inline size_t PrewarmThreads() {
+    const char* value = std::getenv("NXBOX_D3D12_PREWARM_THREADS");
+    return ParsePrewarmThreads(value ? value : "");
 }
 #ifdef NXBOX_UWP
 inline constexpr bool XboxCompilePolicy = true;

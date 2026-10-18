@@ -66,10 +66,11 @@ public:
         : state{std::make_shared<State>()} {
         state->priority_hook = std::move(priority_hook);
         state->base_priority = PsoWorkerPriority();
-        state->capacity = capacity_;
+        state->capacity = base_capacity = capacity_;
         state->stall_limit = stall_limit;
         base_threads = std::clamp(thread_count, size_t{1}, size_t{3});
         thread_limit = std::max(max_threads, base_threads);
+        state->target = base_threads;
         try {
             std::scoped_lock lock{state->mutex};
             for (size_t i = 0; i < base_threads; ++i)
@@ -81,6 +82,25 @@ public:
     }
     ~AsyncPsoWorkerPool() {
         Stop();
+    }
+    /// Resize the non-stalled pool; busy surplus workers retire before taking another job.
+    void SetWorkerTarget(size_t threads) {
+        std::scoped_lock lock{state->mutex};
+        if (state->stopping)
+            return;
+        const size_t target = std::clamp(threads, size_t{1}, size_t{6});
+        state->resized |= target != state->target;
+        state->target = target;
+        state->capacity = state->target > base_threads ? std::max(base_capacity, 2 * state->target)
+                                                       : base_capacity;
+        while (state->active - CountStalled() < state->target && state->active < WorkerLimit())
+            Spawn();
+        state->condition.notify_all();
+    }
+    /// Live workers, including those occupied by stalled jobs.
+    size_t WorkerCount() {
+        std::scoped_lock lock{state->mutex};
+        return state->active;
     }
     Entry Lookup(const Key& key) {
         std::scoped_lock lock{state->mutex};
@@ -208,9 +228,10 @@ private:
         int base_priority{};
         std::vector<NativeHandle> handles;
         std::unordered_map<Key, size_t, Hash> waiters;
-        size_t capacity{}, pending{};
+        size_t capacity{}, pending{}, target{}, active{};
+        std::vector<bool> retired;
         Clock::duration stall_limit{};
-        bool stopping{};
+        bool resized{}, stopping{};
         std::mutex mutex;
         std::condition_variable condition;
         std::condition_variable finished;
@@ -236,31 +257,69 @@ private:
             state->busy_since.begin(), state->busy_since.end(),
             [&](const auto& since) { return since && now - *since >= state->stall_limit; }));
     }
+    // Preserve the constructor's replacement allowance while the target is raised.
+    size_t WorkerLimit() const {
+        return std::max(thread_limit, state->target + thread_limit - base_threads);
+    }
     // Caller holds the mutex. Replaces stalled workers before deciding on admission.
     bool Admittable() {
         const size_t stalled = CountStalled();
-        while (workers.size() - stalled < base_threads && workers.size() < thread_limit)
+        while (state->active - stalled < state->target && state->active < WorkerLimit())
             Spawn();
         // With every worker stuck, an admitted job would stay Pending forever.
-        return workers.size() > stalled && state->pending - stalled < state->capacity;
+        return state->active > stalled && state->pending - stalled < state->capacity;
     }
     // Caller holds the mutex.
     void Spawn() {
-        const size_t index = workers.size();
-        // The new thread blocks on the mutex the caller holds until busy_since has its slot.
-        workers.emplace_back([shared = state, index] { Run(*shared, index); });
-        state->handles.push_back(workers.back().native_handle());
-        state->busy_since.emplace_back();
-        state->running.emplace_back();
+        // Retired slots stay aligned with handles/busy_since/running. Reuse only after
+        // joining the exited thread, so index-based priority and Stop code remain valid.
+        const auto retired = std::find(state->retired.begin(), state->retired.end(), true);
+        const size_t index = std::distance(state->retired.begin(), retired);
+        if (index == workers.size()) {
+            // Allocate before changing any sizes so allocation failure cannot misalign slots.
+            workers.reserve(index + 1);
+            state->handles.reserve(index + 1);
+            state->busy_since.reserve(index + 1);
+            state->running.reserve(index + 1);
+            state->retired.reserve(index + 1);
+            workers.emplace_back();
+            state->handles.emplace_back();
+            state->busy_since.emplace_back();
+            state->running.emplace_back();
+            state->retired.push_back(true);
+        } else if (workers[index].joinable()) {
+            workers[index].join();
+        }
+        // The new thread blocks on the caller's mutex until its slot is initialized.
+        workers[index] = std::thread([shared = state, index] { Run(*shared, index); });
+        state->handles[index] = workers[index].native_handle();
+        state->retired[index] = false;
+        ++state->active;
     }
     static void Run(State& state, size_t index) {
         for (;;) {
             std::pair<Key, Job> item;
             {
                 std::unique_lock lock{state.mutex};
-                state.condition.wait(lock, [&] { return state.stopping || !state.queue.empty(); });
-                if (state.stopping)
+                const auto surplus = [&] {
+                    // An untouched pool keeps its original replacement-worker behavior.
+                    if (!state.resized)
+                        return false;
+                    const auto now = Clock::now();
+                    const size_t stalled = static_cast<size_t>(std::count_if(
+                        state.busy_since.begin(), state.busy_since.end(), [&](const auto& since) {
+                            return since && now - *since >= state.stall_limit;
+                        }));
+                    return state.active - stalled > state.target;
+                };
+                state.condition.wait(
+                    lock, [&] { return state.stopping || surplus() || !state.queue.empty(); });
+                if (state.stopping || surplus()) {
+                    state.retired[index] = true;
+                    state.handles[index] = {};
+                    --state.active;
                     return;
+                }
                 item = std::move(state.queue.front());
                 state.queue.pop_front();
                 state.busy_since[index] = Clock::now();
@@ -296,7 +355,7 @@ private:
         }
     }
     std::shared_ptr<State> state;
-    size_t base_threads{}, thread_limit{};
+    size_t base_threads{}, thread_limit{}, base_capacity{};
     std::vector<std::thread> workers;
 };
 } // namespace D3D12

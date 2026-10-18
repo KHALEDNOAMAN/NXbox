@@ -25,6 +25,7 @@
 
 #include "common/fs/path_util.h"
 #include "common/logging.h"
+#include "common/scope_exit.h"
 #include "shader_recompiler/backend/hlsl/emit_hlsl.h"
 #include "shader_recompiler/frontend/maxwell/translate_program.h"
 #include "shader_recompiler/host_translate_info.h"
@@ -1930,6 +1931,17 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         size_t skipped{};
     };
     const auto stats = std::make_shared<WarmupStats>();
+    // Keep the raised target until submitted jobs settle, not just until disk enumeration ends.
+    // Scope exit also restores it on cancellation, skip-wait and callback/startup exceptions.
+    SCOPE_EXIT {
+        if (preload)
+            async->SetWorkerTarget(2);
+    };
+    if (preload) {
+        const size_t threads = PrewarmThreads();
+        Diagnostic(fmt::format("D3D12 prewarm threads={}", threads));
+        async->SetWorkerTarget(threads);
+    }
     disk->StartWarmup(
         [this, async_warmup, stats, preload](const DiskPipelineRecord& record,
                                              std::stop_token stop) {
@@ -2040,8 +2052,11 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
                 return false;
             }
         },
-        [callback = async_warmup ? VideoCore::DiskResourceLoadCallback{} : callback, stats,
-         preload](const DiskWarmupProgress& progress) {
+        [callback = async_warmup ? VideoCore::DiskResourceLoadCallback{} : callback, stats, preload,
+         warmup_pool = preload ? async.get() : nullptr](const DiskWarmupProgress& progress) {
+            if (warmup_pool && (progress.stage == DiskWarmupStage::Cancelled ||
+                                progress.stage == DiskWarmupStage::Failed))
+                warmup_pool->SetWorkerTarget(2);
             if (preload) {
                 std::scoped_lock guard{preload->mutex};
                 preload->progress = progress;
@@ -2093,6 +2108,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
                 callback(VideoCore::LoadCallbackStage::Build, built, progress.total);
             if (finished && pending == 0) {
                 disk->WaitWarmup();
+                async->SetWorkerTarget(2);
                 if (callback)
                     callback(VideoCore::LoadCallbackStage::Complete, built, progress.total);
                 return;
