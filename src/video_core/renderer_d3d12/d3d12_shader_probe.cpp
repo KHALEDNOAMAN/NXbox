@@ -18,6 +18,8 @@
 #include "video_core/renderer_d3d12/d3d12_shader.h"
 #ifdef NXBOX_UWP
 #include <winrt/Windows.ApplicationModel.Core.h>
+#include <winrt/Windows.ApplicationModel.h>
+#include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Storage.h>
 #include <winrt/Windows.System.h>
 #endif
