@@ -715,9 +715,13 @@ void FrameProfile::EndFrame(bool presented) {
 Context::Context() {
     SetEnvironmentVariableA("NXBOX_D3D12_COMMAND_FAILURE", nullptr);
     SetEnvironmentVariableA("NXBOX_D3D12_FIRST_FAILURE", nullptr);
+    // NXBOX_D3D12_NO_DRED=1 skips the device-removal breadcrumbs to measure their recording cost.
     ComPtr<ID3D12DeviceRemovedExtendedDataSettings1> dred;
-    const auto dred_status = D3D12GetDebugInterface(IID_PPV_ARGS(&dred));
-    if (SUCCEEDED(dred_status)) {
+    const bool no_dred = BisectEnabled("NXBOX_D3D12_NO_DRED");
+    const auto dred_status = no_dred ? E_ABORT : D3D12GetDebugInterface(IID_PPV_ARGS(&dred));
+    if (no_dred) {
+        Diagnostic("D3D12 DRED disabled by NXBOX_D3D12_NO_DRED");
+    } else if (SUCCEEDED(dred_status)) {
         dred->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
         dred->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
         dred->SetBreadcrumbContextEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
@@ -789,7 +793,8 @@ Context::Context() {
     for (const auto* knob :
          {"NXBOX_D3D12_NO_PSO_LIBRARY", "NXBOX_D3D12_GPU_ASTC", "NXBOX_D3D12_NO_COMPUTE",
           "NXBOX_D3D12_NO_DRAWS", "NXBOX_D3D12_NO_QUERIES", "NXBOX_D3D12_SUBMIT_TRACE",
-          "NXBOX_D3D12_FENCE_BATCHING", "NXBOX_D3D12_BATCH_DESCRIPTOR_COPIES"})
+          "NXBOX_D3D12_FENCE_BATCHING", "NXBOX_D3D12_BATCH_DESCRIPTOR_COPIES",
+          "NXBOX_D3D12_NO_DRED"})
         Diagnostic(fmt::format("D3D12 bisect {}={}", knob, BisectEnabled(knob) ? 1 : 0));
     D3D12_FEATURE_DATA_SHADER_MODEL model{D3D_SHADER_MODEL_6_0};
     Check(device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &model, sizeof(model)),
