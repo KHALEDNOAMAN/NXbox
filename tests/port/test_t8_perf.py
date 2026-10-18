@@ -221,7 +221,8 @@ class T8PerfTests(unittest.TestCase):
         run = helpers.split("void ComputePasses::Run(")[1]
         self.assertNotIn("CreateDescriptorHeap", run)
         self.assertIn("descriptors.FindTable(view_key)", run)
-        self.assertIn("context.TransitionBatch(transitions)", dispatch)
+        self.assertIn("context.TransitionBatch(transitions, fast_barriers)", dispatch)
+        self.assertIn("if (!fast_barriers)\n        UavBarrier();", dispatch)
         self.assertEqual(dispatch.count("Count(FrameCount::Dispatches)"), 2)
         for phase in (
             "draw_setup",
