@@ -13,6 +13,19 @@ import { PackError } from "./i18n";
  * bigger files go up in slices that NXbox joins on its next start (src/frontend_common/split_upload.h).
  */
 export const PART_SIZE = 1024 ** 3;
+/** Pure upload plan shared by both modes; the manifest is always the last upload. */
+export function uploadPlan(name: string, size: number, partSize = PART_SIZE) {
+  if (size <= partSize) return { files: [{ name, start: 0, end: size - 1 }], manifest: undefined };
+  const parts = Math.ceil(size / partSize);
+  return {
+    files: Array.from({ length: parts }, (_, index) => ({
+      name: `${name}.nxpart${String(index).padStart(3, "0")}`,
+      start: index * partSize,
+      end: Math.min((index + 1) * partSize, size) - 1,
+    })),
+    manifest: { name: `${name}.nxparts`, text: `parts=${parts}\nsize=${size}\n` },
+  };
+}
 export type Credentials = { user: string; password: string };
 export type InstalledPackage = {
   Name: string;
@@ -89,10 +102,14 @@ export class DevicePortal {
     if (!setting?.Name) return false;
     const value = setting.Type === "Bool" || setting.Name.endsWith("ToGame") ? "true" : "Game";
     if (String(setting.Value).toLowerCase() === value.toLowerCase()) return false;
-    const response = await this.request("PUT", `/ext/settings/${encodeURIComponent(setting.Name)}`, {
-      body: JSON.stringify({ Value: value }),
-      headers: { "Content-Type": "application/json" },
-    });
+    const response = await this.request(
+      "PUT",
+      `/ext/settings/${encodeURIComponent(setting.Name)}`,
+      {
+        body: JSON.stringify({ Value: value }),
+        headers: { "Content-Type": "application/json" },
+      },
+    );
     if (!response.ok) throw new Error(`Device Portal refused ${setting.Name}: ${response.status}`);
     return true;
   }
@@ -265,32 +282,30 @@ export class DevicePortal {
     partSize = PART_SIZE,
   ): Promise<void> {
     const size = Bun.file(path).size;
-    if (size <= partSize) {
+    const plan = uploadPlan(remoteName, size, partSize);
+    if (!plan.manifest) {
       await this.pushOne(pkg, directory, { path, name: remoteName }, size, onProgress);
       return;
     }
-    const parts = Math.ceil(size / partSize);
-    for (let index = 0; index < parts; index++) {
-      const start = index * partSize;
-      const end = Math.min(start + partSize, size) - 1;
+    for (const file of plan.files) {
       await this.pushOne(
         pkg,
         directory,
-        { path, name: `${remoteName}.nxpart${String(index).padStart(3, "0")}`, start, end },
-        end - start + 1,
+        { path, ...file },
+        file.end - file.start + 1,
         // Report progress of the whole file, not of the current slice.
-        (sent) => onProgress?.(start + sent, size),
+        (sent) => onProgress?.(file.start + sent, size),
       );
     }
     const temporary = await mkdtemp(join(tmpdir(), "nxbox-pack-parts-"));
     try {
-      const manifest = join(temporary, `${remoteName}.nxparts`);
-      const text = `parts=${parts}\nsize=${size}\n`;
+      const manifest = join(temporary, plan.manifest.name);
+      const text = plan.manifest.text;
       await writeFile(manifest, text);
       await this.pushOne(
         pkg,
         directory,
-        { path: manifest, name: `${remoteName}.nxparts` },
+        { path: manifest, name: plan.manifest.name },
         Buffer.byteLength(text),
       );
     } finally {

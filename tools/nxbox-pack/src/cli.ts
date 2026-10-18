@@ -15,6 +15,7 @@ import {
   validateTitleId,
 } from "./files";
 import { deployGame } from "./deploy";
+import { chooseLibraryMode, sendToLibrary } from "./library";
 import {
   downloadRuntime,
   latestRuntime,
@@ -43,16 +44,21 @@ import {
 export function parseArgs(args: string[]): {
   help: boolean;
   insecure: boolean;
+  library: boolean;
   source?: RuntimeSource;
 } {
   let url: string | undefined, sha256: string | undefined;
   let insecure = false,
-    help = false;
+    help = false,
+    library = false;
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
       case "--help":
       case "-h":
         help = true;
+        break;
+      case "--library":
+        library = true;
         break;
       case "--insecure-portal":
         insecure = true;
@@ -70,7 +76,12 @@ export function parseArgs(args: string[]): {
     }
   }
   if (Boolean(url) !== Boolean(sha256)) throw new PackError("args");
-  return { help, insecure, source: url && sha256 ? validateSource({ url, sha256 }) : undefined };
+  return {
+    help,
+    insecure,
+    library,
+    source: url && sha256 ? validateSource({ url, sha256 }) : undefined,
+  };
 }
 async function systemLanguage() {
   let locale = Intl.DateTimeFormat().resolvedOptions().locale;
@@ -93,6 +104,41 @@ async function systemLanguage() {
   }
   return detectLanguage(process.env, locale);
 }
+function uploadProgress(text: (typeof strings)["en"]) {
+  let lastProgress = 0;
+  return (name: string, sent: number, total: number) => {
+    if (Date.now() - lastProgress > 5000 || sent === total) {
+      console.log(`${text.progress} ${name}: ${((sent / total) * 100).toFixed(1)}%`);
+      lastProgress = Date.now();
+    }
+  };
+}
+
+async function connectPortal(prompt: Prompt, language: keyof typeof strings, insecure: boolean) {
+  const text = strings[language];
+  const discovered = await discoverXbox();
+  if (discovered.length) console.log(`${text.found}: ${discovered.join(", ")}`);
+  const base = portalUrl(await prompt.ask(text.host, discovered.length === 1 ? discovered[0] : ""));
+  let credentials = await loadCredentials(base);
+  const yes = (answer: string) => /^(y|yes|s|sim)$/i.test(answer);
+  if (credentials && !yes(await prompt.ask(text.saved, language === "pt" ? "s" : "y")))
+    credentials = undefined;
+  if (!credentials) {
+    credentials = {
+      user: await prompt.ask(text.user),
+      password: await prompt.password(text.password),
+    };
+    if (!credentials.user || credentials.user.includes(":") || !credentials.password)
+      throw new PackError("portal");
+  }
+  const portal = new DevicePortal(base, credentials, insecure);
+  await portal.packages(); // Authenticate before offering to persist credentials.
+  if (yes(await prompt.ask(text.remember))) {
+    if (!(await saveCredentials(base, credentials))) console.log(text.secureUnavailable);
+  }
+  return portal;
+}
+
 export async function main(): Promise<void> {
   const language = await systemLanguage();
   const text = strings[language];
@@ -141,8 +187,15 @@ export async function main(): Promise<void> {
       console.log(`${text.help}\n${text.profileUsage}`);
       return;
     }
-    console.log(`NXbox Pack\n${text.legal}\n${text.guide}`);
+    console.log(`NXbox Pack\n${text.legal}`);
     prompt = new Prompt();
+    if (await chooseLibraryMode(options.library, prompt, text)) {
+      const portal = await connectPortal(prompt, language, options.insecure);
+      await sendToLibrary(portal, prompt, text, uploadProgress(text));
+      console.log(text.libraryDone);
+      return;
+    }
+    console.log(text.guide);
     const game = draggedPath(await prompt.ask("→"));
     await validateFile(game);
     const titleId = validateTitleId(parseTitleId(game) ?? (await prompt.ask(text.title)));
@@ -224,30 +277,8 @@ export async function main(): Promise<void> {
     const content: string[] = [];
     for (const [index, path] of [game, ...extras].entries())
       content.push(await prepareContent(path, join(temporary, `content-${index}`), keys));
-    const discovered = await discoverXbox();
-    if (discovered.length) console.log(`${text.found}: ${discovered.join(", ")}`);
-    const base = portalUrl(
-      await prompt.ask(text.host, discovered.length === 1 ? discovered[0] : ""),
-    );
-    let credentials = await loadCredentials(base);
-    const yes = (answer: string) => /^(y|yes|s|sim)$/i.test(answer);
-    if (credentials && !yes(await prompt.ask(text.saved, language === "pt" ? "s" : "y")))
-      credentials = undefined;
-    if (!credentials) {
-      credentials = {
-        user: await prompt.ask(text.user),
-        password: await prompt.password(text.password),
-      };
-      if (!credentials.user || credentials.user.includes(":") || !credentials.password)
-        throw new PackError("portal");
-    }
-    const portal = new DevicePortal(base, credentials, options.insecure);
-    await portal.packages(); // Authenticate before offering to persist credentials.
-    if (yes(await prompt.ask(text.remember))) {
-      if (!(await saveCredentials(base, credentials))) console.log(text.secureUnavailable);
-    }
+    const portal = await connectPortal(prompt, language, options.insecure);
     console.log(text.install);
-    let lastProgress = 0;
     const identity = await deployGame({
       portal,
       titleId,
@@ -258,12 +289,7 @@ export async function main(): Promise<void> {
       temporary,
       transfers,
       onUploading: () => console.log(text.upload),
-      onProgress: (remoteName, sent, total) => {
-        if (Date.now() - lastProgress > 5000 || sent === total) {
-          console.log(`${text.progress} ${remoteName}: ${((sent / total) * 100).toFixed(1)}%`);
-          lastProgress = Date.now();
-        }
-      },
+      onProgress: uploadProgress(text),
     });
     console.log(`${name} (${identity})\n${text.done}`);
   } catch (error) {

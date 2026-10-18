@@ -1,8 +1,9 @@
 # NXbox Pack
 
-Install a separate NXbox UWP app for each locally owned game. The app has its own identity, name,
-tile and private saves/keys/content. Once configured, its tile boots directly into the game, without
-opening the NXbox library. This packages an emulator runtime; it does not recompile the game.
+Send locally owned games to the main NXbox library, or install a separate NXbox UWP app for each game.
+A separate game app has its own identity, name, tile and private saves/keys/content. Once configured,
+its tile boots directly into the game, without opening the NXbox library. Own-app mode packages an
+emulator runtime; it does not recompile the game.
 
 Download a binary from the **Build NXbox Pack** workflow artifacts:
 
@@ -30,6 +31,9 @@ The self-signed Device Portal TLS certificate normally requires `--insecure-port
 applies only to the selected portal connection. Omit it if the console certificate is trusted. Use a
 trusted local network when accepting an unverified certificate.
 
+Choose **Install this game as its own app** (option 2) for the steps below. The default, option 1,
+sends games to the installed NXbox library.
+
 1. Drag one game file and press Enter.
 2. Drag `prod.keys` and press Enter.
 3. Optionally drag updates/DLC, one per prompt, then press Enter without a file.
@@ -50,6 +54,28 @@ Credentials stay in memory unless you choose to save them. macOS uses Keychain v
 uses Secret Service via `secret-tool`; Windows tries PasswordVault and falls back to a CurrentUser
 DPAPI-encrypted record. If secure storage fails, the session continues without saving. Passwords are
 never passed in process arguments or written as plaintext configuration.
+
+## Send games to the NXbox library (big games)
+
+Install the main NXbox app on the console first, then run:
+
+```sh
+./nxbox-pack-macos-arm64 --library --insecure-portal
+```
+
+Without `--library`, choose **Send games to the NXbox library** (option 1, the default).
+Connect using the discovered Xbox address and Device Portal credentials. Drag the base game,
+updates and DLC (`.nsp`, `.nsz`, `.xci`, `.xcz`), one file per prompt, then press empty Enter to finish.
+NXbox Pack sends the original files to the installed `NSPX.NXbox_` package's `LocalState\games`.
+NSZ/XCZ stay compressed; this mode needs no local decompressor and never downloads a runtime or
+builds/signs a package.
+
+Files up to 1 GiB use one upload; larger files use numbered 1 GiB parts and a final manifest,
+with size verification and progress for the whole file. This avoids Device Portal's multi-GB upload
+failure. Missing `prod.keys` and `title.keys` can be supplied optionally; existing keys are skipped
+based on the console's file listing. Open NXbox afterward: it joins the parts on start before the
+games appear in the library, which can take a minute for big games. Keep enough free space for
+one extra part during joining.
 
 ## Runtime source
 
@@ -77,7 +103,7 @@ and strips signed APPX bookkeeping, homebrew samples, game dumps, keys and stale
 
 ## Compressed games
 
-NSZ/XCZ files are accepted, but need the optional
+In own-app mode, NSZ/XCZ files are accepted, but need the optional
 [nsz decompressor](https://github.com/nicoboss/nsz) on PATH. NXbox Pack runs
 `nsz -D --keys <your-prod.keys> -o <private-temp-directory> <dump>` locally before deployment. It
 uploads the resulting NSP/XCI and deletes temporary output afterward. The original dump is

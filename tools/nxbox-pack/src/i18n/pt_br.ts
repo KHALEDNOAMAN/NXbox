@@ -4,6 +4,15 @@
 import type { Translation } from "./registry";
 
 export default {
+  installMode:
+    "1. Enviar jogos para a biblioteca do NXbox\n2. Instalar este jogo como um app próprio\nEscolha o modo",
+  libraryGame:
+    "Arraste um jogo, update ou DLC (.nsp .nsz .xci .xcz), um arquivo por vez; Enter termina",
+  libraryKeys: "Arraste prod.keys ou pressione Enter para pular",
+  libraryMissing:
+    "O app principal NXbox não foi encontrado neste console. Instale o NXbox primeiro e execute --library novamente.",
+  libraryDone:
+    "Pronto. Abra o NXbox: os jogos aparecem na biblioteca após juntar as partes ao iniciar. Jogos grandes podem levar um minuto.",
   profileUsage:
     "Uso: nxbox-pack profile multi on|off, ou nxbox-pack profile avatar <nome> <imagem> | --character <id> --color <nome> [--insecure-portal]",
   profilePackage: "Nome completo do pacote (escolha o app cujas contas quer editar)",
@@ -94,5 +103,5 @@ export default {
   rejectMismatch:
     "Rejeitado: este ID de título não pertence ao jogo (esperado o ID do update ou a faixa de DLC).",
   rejectDuplicate: "Rejeitado: este arquivo ou ID de título já foi adicionado.",
-  help: "NXbox Pack\nUso: nxbox-pack [--runtime-url URL_HTTPS --runtime-sha256 HEX] [--insecure-portal]\n--insecure-portal aceita o certificado TLS autoassinado do Xbox somente nesta conexão.\nRuntime padrão: última release de NspxMiguel/NXbox com digest SHA-256 do arquivo.\nJogos e chaves ficam fora do runtime preparado. NSZ/XCZ requer nsz no PATH.",
+  help: "NXbox Pack\nUso: nxbox-pack [--library] [--runtime-url URL_HTTPS --runtime-sha256 HEX] [--insecure-portal]\n--insecure-portal aceita o certificado TLS autoassinado do Xbox somente nesta conexão.\nRuntime padrão: última release de NspxMiguel/NXbox com digest SHA-256 do arquivo.\nJogos e chaves ficam fora do runtime preparado. App próprio requer nsz no PATH para NSZ/XCZ; --library envia diretamente.\n--library envia jogos ao app principal NXbox instalado sem montar pacote.",
 } satisfies Translation;

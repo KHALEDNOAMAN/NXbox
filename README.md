@@ -209,6 +209,7 @@ You need an Xbox Series X|S in **Developer Mode** and your own dumps:
 3. Put your games (`.nsp`, `.nsz` or `.xci`) in `LocalState\games` (subfolders are fine), or on a USB drive in
    `NXbox\games` (the console's internal developer storage is small, a few GB). `.nsz` files are
    converted on the console the first time the library sees them.
+   Games above about 3 GB fail in the Device Portal file explorer; send them with [NXbox Pack library mode](tools/nxbox-pack/README.md#send-games-to-the-nxbox-library-big-games) or a USB drive (`NXbox\games` on the drive).
 4. Launch NXbox from the dashboard and pick the game in the library.
 
 **\*New\*** [NXbox Pack](tools/nxbox-pack/README.md) does steps 1–4 for one game at a time: drag the

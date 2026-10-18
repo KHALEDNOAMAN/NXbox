@@ -2,6 +2,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 export default {
+  installMode:
+    "1. Send games to the NXbox library\n2. Install this game as its own app\nChoose a mode",
+  libraryGame:
+    "Drag a game, update or DLC (.nsp .nsz .xci .xcz), one file at a time; Enter finishes",
+  libraryKeys: "Drag prod.keys, or press Enter to skip",
+  libraryMissing:
+    "Main NXbox app not found on this console. Install NXbox first, then run --library again.",
+  libraryDone:
+    "Ready. Open NXbox: games appear in the library after it joins the parts on start. Big games can take a minute.",
   profileUsage:
     "Usage: nxbox-pack profile multi on|off, or nxbox-pack profile avatar <name> <image> | --character <id> --color <name> [--insecure-portal]",
   profilePackage: "Package full name (choose the app whose accounts you want to edit)",
@@ -90,5 +99,5 @@ export default {
   rejectMismatch:
     "Rejected: this title ID does not belong to the game (expected its update ID or DLC range).",
   rejectDuplicate: "Rejected: this file or title ID was already added.",
-  help: "NXbox Pack\nUsage: nxbox-pack [--runtime-url HTTPS_URL --runtime-sha256 HEX] [--insecure-portal]\n--insecure-portal accepts the Xbox self-signed TLS certificate for this connection only.\nDefault runtime: latest NspxMiguel/NXbox release with a SHA-256 asset digest.\nNo games or keys are included in the staged runtime. NSZ/XCZ requires nsz on PATH.",
+  help: "NXbox Pack\nUsage: nxbox-pack [--library] [--runtime-url HTTPS_URL --runtime-sha256 HEX] [--insecure-portal]\n--insecure-portal accepts the Xbox self-signed TLS certificate for this connection only.\nDefault runtime: latest NspxMiguel/NXbox release with a SHA-256 asset digest.\nNo games or keys are included in the staged runtime. Own-app mode requires nsz on PATH for NSZ/XCZ; --library sends them directly.\n--library sends games to the installed main NXbox app without building a package.",
 };
