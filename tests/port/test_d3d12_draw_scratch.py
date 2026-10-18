@@ -18,6 +18,7 @@ MOCK = r"""
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 using u8 = std::uint8_t;
@@ -26,6 +27,7 @@ using u64 = std::uint64_t;
 using ResourcePtr = std::shared_ptr<int>;
 """
 ALLOCATOR = r"""
+bool BisectEnabled(const char*) { return false; }
 enum class FrameCount { DescriptorTableReuses };
 constexpr int D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER = 0;
 constexpr int D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV = 1;
@@ -41,6 +43,8 @@ struct Context {
     void Count(FrameCount) { ++reuses; }
 };
 struct D3D12DescriptorAllocator {
+    struct CopyBatch {};
+    void FlushCopies(int, CopyBatch&) {}
     struct PreviousDrawTable {
         u64 tick = 0;
         DescriptorPlan plan{{0, 0, 0}};
@@ -51,7 +55,7 @@ struct D3D12DescriptorAllocator {
     u32 allocations = 0, writes = 0;
     DescriptorTable AllocateViews(u32) { return {++allocations}; }
     DescriptorTable AllocateSamplers(u32) { return {++allocations}; }
-    void WriteCached(int, const ResourcePtr&, u32, const void*, u32, u32) { ++writes; }
+    void WriteCached(int, const ResourcePtr&, u32, const void*, u32, u32, CopyBatch*) { ++writes; }
     bool CanReuseDrawTable(const DescriptorPlan&, bool = false) const;
     DescriptorTable FinishDrawTable(DescriptorPlan&, bool = false);
 };
