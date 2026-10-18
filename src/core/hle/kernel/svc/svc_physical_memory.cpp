@@ -32,7 +32,6 @@ static Result SetHeapSizeImpl(Core::System& system, u64* out_address, u64 size) 
 
 Result SetHeapSize(Core::System& system, u64* out_address, u64 size) {
     const Result result = SetHeapSizeImpl(system, out_address, size);
-#ifdef NXBOX_UWP
     auto& process = GetCurrentProcess(system.Kernel());
     auto* limit = process.GetResourceLimit();
     if (result.IsError()) {
@@ -44,7 +43,6 @@ Result SetHeapSize(Core::System& system, u64* out_address, u64 size) {
         LOG_INFO(Kernel_SVC, "NXBOX MEM_SVC SetHeapSize base={:#x} size={:#x} end={:#x} result=0",
                  *out_address, size, *out_address + size);
     }
-#endif
     R_RETURN(result);
 }
 
@@ -99,10 +97,9 @@ static Result MapPhysicalMemoryImpl(Core::System& system, u64 addr, u64 size) {
 
 Result MapPhysicalMemory(Core::System& system, u64 addr, u64 size) {
     const Result result = MapPhysicalMemoryImpl(system, addr, size);
-#ifdef NXBOX_UWP
+    auto& process = GetCurrentProcess(system.Kernel());
+    auto* limit = process.GetResourceLimit();
     if (result.IsError()) {
-        auto& process = GetCurrentProcess(system.Kernel());
-        auto* limit = process.GetResourceLimit();
         LOG_ERROR(Kernel_SVC,
                   "NXBOX MEM_SVC MapPhysicalMemory addr={:#x} size={:#x} result={:#x} "
                   "used={:#x} limit={:#x} system_resource={:#x}",
@@ -110,6 +107,14 @@ Result MapPhysicalMemory(Core::System& system, u64 addr, u64 size) {
                   limit->GetCurrentValue(LimitableResource::PhysicalMemoryMax),
                   limit->GetLimitValue(LimitableResource::PhysicalMemoryMax),
                   process.GetTotalSystemResourceSize());
+    }
+#ifndef NXBOX_UWP
+    // Desktop only: trace the used/limit trajectory so it can be compared with the Xbox log.
+    else {
+        LOG_INFO(Kernel_SVC,
+                 "NXBOX MEM_SVC MapPhysicalMemory ok addr={:#x} size={:#x} used={:#x} limit={:#x}",
+                 addr, size, limit->GetCurrentValue(LimitableResource::PhysicalMemoryMax),
+                 limit->GetLimitValue(LimitableResource::PhysicalMemoryMax));
     }
 #endif
     R_RETURN(result);

@@ -141,12 +141,10 @@ Result MapMemory(Core::System& system, u64 dst_addr, u64 src_addr, u64 size) {
     if (result.IsSuccess()) {
         result = page_table.MapMemory(dst_addr, src_addr, size);
     }
-#ifdef NXBOX_UWP
     if (result.IsError()) {
         LOG_ERROR(Kernel_SVC, "NXBOX MEM_SVC MapMemory dst={:#x} src={:#x} size={:#x} result={:#x}",
                   dst_addr, src_addr, size, result.raw);
     }
-#endif
     R_RETURN(result);
 }
 
