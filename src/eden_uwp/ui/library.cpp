@@ -598,7 +598,9 @@ std::vector<GameEntry> LibraryScan::Scan() {
     std::vector<fs::path> compressed; // .nsz
     {
         std::error_code error;
-        fs::directory_iterator iterator(games_dir, error);
+        // Players often keep one folder per game, so subfolders are scanned too.
+        fs::recursive_directory_iterator iterator(
+            games_dir, fs::directory_options::skip_permission_denied, error);
         if (error) {
             Diagnostic("UI library scan: no local games folder (" + error.message() + ")");
         }

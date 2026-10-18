@@ -204,7 +204,7 @@ You need an Xbox Series X|S in **Developer Mode** and your own dumps:
    does this for you), or afterwards in Dev Home select NXbox → **View details** and set
    **App type** to **Game**.
 2. Put `prod.keys` and `title.keys` in the app's `LocalState\eden\keys`.
-3. Put your games (`.nsp`, `.nsz` or `.xci`) in `LocalState\games`, or on a USB drive in
+3. Put your games (`.nsp`, `.nsz` or `.xci`) in `LocalState\games` (subfolders are fine), or on a USB drive in
    `NXbox\games` (the console's internal developer storage is small, a few GB). `.nsz` files are
    converted on the console the first time the library sees them.
 4. Launch NXbox from the dashboard and pick the game in the library.

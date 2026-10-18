@@ -1212,8 +1212,11 @@ private:
         installed_sizes_.clear();
         installed_paths_.clear();
         std::error_code ec;
-        for (fs::directory_iterator it(local_state_ / L"games", ec), end; !ec && it != end;
-             it.increment(ec)) {
+        // Same scope as the library scan: games\ and its subfolders.
+        for (fs::recursive_directory_iterator it(local_state_ / L"games",
+                                                 fs::directory_options::skip_permission_denied, ec),
+             end;
+             !ec && it != end; it.increment(ec)) {
             if (it->is_regular_file(ec) &&
                 IsGameExtension(LowerWide(it->path().extension().wstring()))) {
                 const auto size = it->file_size(ec);
