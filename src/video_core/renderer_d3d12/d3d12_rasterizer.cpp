@@ -1779,10 +1779,16 @@ void RasterizerD3D12::PrepareDraw(bool is_indexed, Func&& draw) {
     descriptors.SetHeaps(commands, true);
     // State collection has already merged aliases and rejected conflicting writes.
     // Submit the same ordered transitions in one call even without split feedback.
-    context.TransitionBatch(state_scratch);
-    if (subresource_feedback) {
-        for (const auto& [resource, subresources] : sampled_subresources)
-            context.TransitionSubresources(resource, subresources, SrvState);
+    static const bool fast_barriers = BisectEnabled("NXBOX_D3D12_FAST_BARRIERS");
+    if (fast_barriers) {
+        // All views are resolved before recording; no GPU work separates these transitions.
+        context.TransitionBatch(state_scratch, false, sampled_subresources, SrvState);
+    } else {
+        context.TransitionBatch(state_scratch);
+        if (subresource_feedback) {
+            for (const auto& [resource, subresources] : sampled_subresources)
+                context.TransitionSubresources(resource, subresources, SrvState);
+        }
     }
 
     auto& recorded = context.DrawState();
@@ -3210,6 +3216,8 @@ void RasterizerD3D12::DispatchCompute() try {
     VideoCommon::SubmissionTrace::Log("host_compute_submit program={:x} grid={},{},{}",
                                       qmd.program_start, qmd.grid_dim_x.Value(),
                                       qmd.grid_dim_y.Value(), qmd.grid_dim_z.Value());
+    if (HasComputeWork({qmd.grid_dim_x, qmd.grid_dim_y, qmd.grid_dim_z}))
+        context.Profile().Count(FrameCount::GuestDispatches);
     compute_dispatch.Direct(dispatch, {qmd.grid_dim_x, qmd.grid_dim_y, qmd.grid_dim_z});
     trace_submitted = true;
     bindings.stages[0].Clear();

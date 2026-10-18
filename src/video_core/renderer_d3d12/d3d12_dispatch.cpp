@@ -87,22 +87,32 @@ void ComputeDispatch::Bind(const ComputeBindings& bindings) {
             if (other.resource == use.resource && other.state != use.state)
                 throw std::invalid_argument("D3D12 conflicting compute resource states");
     }
-    context.InvalidateRecordedState();
+    static const bool fast_roots = BisectEnabled("NXBOX_D3D12_FAST_ROOT_BINDS");
+    if (fast_roots)
+        context.InvalidateGraphicsState();
+    else
+        context.InvalidateRecordedState();
     auto* commands = context.Commands();
     // Commands() may retire the previous recording before these objects are held.
     context.AfterCompletion([pipeline = bindings.pipeline, root = bindings.root_signature,
                              resources = bindings.resource_heap, samplers = bindings.sampler_heap,
                              signature = indirect_signature] {});
     commands->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
-    UavBarrier();
+    static const bool fast_barriers = BisectEnabled("NXBOX_D3D12_FAST_BARRIERS");
+    if (!fast_barriers)
+        UavBarrier();
     std::vector<std::pair<ResourcePtr, D3D12_RESOURCE_STATES>> transitions;
     transitions.reserve(bindings.resources.size());
     for (const auto& use : bindings.resources)
         transitions.emplace_back(use.resource, use.state);
-    context.TransitionBatch(transitions);
+    context.TransitionBatch(transitions, fast_barriers);
     ID3D12DescriptorHeap* heaps[]{bindings.resource_heap.Get(), bindings.sampler_heap.Get()};
     commands->SetDescriptorHeaps(2, heaps);
-    commands->SetComputeRootSignature(bindings.root_signature.Get());
+    auto& roots = context.ComputeRoots();
+    if (!fast_roots || roots.signature.Update(bindings.root_signature.Get())) {
+        commands->SetComputeRootSignature(bindings.root_signature.Get());
+        roots.cbvs = {};
+    }
     commands->SetPipelineState(bindings.pipeline.Get());
     commands->SetComputeRoot32BitConstants(0, ComputeRootDwords, bindings.constants.data(), 0);
     for (UINT i = bindings.root_cbvs ? 1u : 0u; i < bindings.tables.size(); ++i)
@@ -110,9 +120,13 @@ void ComputeDispatch::Bind(const ComputeBindings& bindings) {
                                                 bindings.tables[i]);
     if (bindings.root_cbvs) {
         for (UINT i = 0; i < bindings.root_cbv_addresses.size(); ++i) {
-            commands->SetComputeRootConstantBufferView(kFirstRootCbv + i,
-                                                       bindings.root_cbv_addresses[i]);
-            context.Profile().Count(FrameCount::RootCbvBinds);
+            // An unchanged slot/address under the same signature retains the same binding.
+            if (!fast_roots ||
+                roots.cbvs[kFirstRootCbv + i].Update(bindings.root_cbv_addresses[i])) {
+                commands->SetComputeRootConstantBufferView(kFirstRootCbv + i,
+                                                           bindings.root_cbv_addresses[i]);
+                context.Profile().Count(FrameCount::RootCbvBinds);
+            }
         }
     }
 }

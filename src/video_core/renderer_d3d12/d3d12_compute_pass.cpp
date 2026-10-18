@@ -229,6 +229,7 @@ void ComputePasses::Run(HelperComputePass pass, ComputeConstants constants, Comp
         resources.push_back({texture.resource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS});
     bindings.resources = resources;
     context.MarkWork(pass == HelperComputePass::DecodeAstc ? "ASTC compute" : "helper compute");
+    context.Profile().Count(FrameCount::HelperDispatches);
     dispatch.Direct(bindings, groups);
 }
 } // namespace D3D12

@@ -89,7 +89,12 @@ class RedundantStateTests(unittest.TestCase):
         # Copies, uploads and queries leave graphics state alone and must not reset the cache.
         for label in ("guest draws", "upload/copy", "queries"):
             self.assertIn(f'"{label}"', work.split("InvalidateRecordedState();", 1)[0])
-        self.assertNotIn('"guest compute"', work.split("InvalidateRecordedState();", 1)[0])
+        neutral = work.split("state_neutral{", 1)[1].split("};", 1)[0]
+        self.assertNotIn('"guest compute"', neutral)
+        # Opt-in compute retains compute roots but still invalidates graphics PSO state.
+        self.assertIn('BisectEnabled("NXBOX_D3D12_FAST_ROOT_BINDS")', work)
+        self.assertIn('label == "guest compute"', work)
+        self.assertLess(work.index("InvalidateGraphicsState();"), work.index("} else if"))
         self.assertLess(
             work.index("InvalidateRecordedState();"), work.index("std::find(work.begin()")
         )

@@ -22,7 +22,9 @@ def function(source, signature):
 
 
 MOCK = r"""
+#include <algorithm>
 #include <cassert>
+#include <cstdlib>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -42,6 +44,9 @@ inline constexpr unsigned D3D12_RESOURCE_STATE_COPY_DEST = 1024;
 inline constexpr unsigned SrvState = 64 | 128;
 inline constexpr unsigned D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES = ~0u;
 inline constexpr unsigned D3D12_RESOURCE_BARRIER_TYPE_TRANSITION = 0;
+inline constexpr unsigned D3D12_RESOURCE_BARRIER_TYPE_UAV = 1;
+inline constexpr unsigned D3D12_RESOURCE_STATE_COMMON = 0;
+bool BisectEnabled(const char*) { return std::getenv("FAST") != nullptr; }
 inline constexpr unsigned D3D12_HEAP_TYPE_DEFAULT = 1;
 inline constexpr unsigned D3D12_RESOURCE_DIMENSION_BUFFER = 1;
 inline constexpr unsigned D3D12_RESOURCE_DIMENSION_TEXTURE2D = 3;
@@ -112,7 +117,11 @@ struct Context {
         }
     }
     void Transition(const ResourcePtr&, D3D12_RESOURCE_STATES);
-    void TransitionBatch(std::span<const std::pair<ResourcePtr, D3D12_RESOURCE_STATES>>);
+    void TransitionBatch(std::span<const std::pair<ResourcePtr, D3D12_RESOURCE_STATES>>,
+                         bool = false,
+                         std::span<const std::pair<ResourcePtr, std::vector<u32>>> = {},
+                         D3D12_RESOURCE_STATES = D3D12_RESOURCE_STATE_COMMON);
+    void AppendSubresourceTransitions(const ResourcePtr&, std::span<const u32>, D3D12_RESOURCE_STATES);
     void TransitionSubresources(const ResourcePtr&, std::span<const u32>, D3D12_RESOURCE_STATES);
 };
 """
@@ -344,7 +353,12 @@ class SubresourceFeedbackTests(unittest.TestCase):
         context = (NATIVE / "d3d12_context.cpp").read_text()
         methods = "\n".join(
             function(context, f"void Context::{name}(")
-            for name in ("Transition", "TransitionSubresources", "TransitionBatch")
+            for name in (
+                "Transition",
+                "TransitionSubresources",
+                "AppendSubresourceTransitions",
+                "TransitionBatch",
+            )
         )
         with tempfile.TemporaryDirectory(prefix="nxbox-subresource-") as temp:
             source = Path(temp) / "transitions.cpp"

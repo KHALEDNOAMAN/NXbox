@@ -613,7 +613,10 @@ void FrameProfile::EndFrame(bool presented) {
                                       "fermi_discard_upload_bytes",
                                       "staging_new_resources",
                                       "uniform_snapshot_requests",
-                                      "uniform_snapshot_new_resources"};
+                                      "uniform_snapshot_new_resources",
+                                      "guest_dispatches",
+                                      "helper_dispatches",
+                                      "query_dispatches"};
         static_assert(names.size() == static_cast<size_t>(FramePhase::Count));
         static_assert(counters.size() == static_cast<size_t>(FrameCount::Count));
         const double elapsed = static_cast<double>(wall - start_wall);
@@ -789,7 +792,8 @@ Context::Context() {
     for (const auto* knob :
          {"NXBOX_D3D12_NO_PSO_LIBRARY", "NXBOX_D3D12_GPU_ASTC", "NXBOX_D3D12_NO_COMPUTE",
           "NXBOX_D3D12_NO_DRAWS", "NXBOX_D3D12_NO_QUERIES", "NXBOX_D3D12_SUBMIT_TRACE",
-          "NXBOX_D3D12_FENCE_BATCHING", "NXBOX_D3D12_BATCH_DESCRIPTOR_COPIES"})
+          "NXBOX_D3D12_FENCE_BATCHING", "NXBOX_D3D12_BATCH_DESCRIPTOR_COPIES",
+          "NXBOX_D3D12_FAST_BARRIERS", "NXBOX_D3D12_FAST_ROOT_BINDS"})
         Diagnostic(fmt::format("D3D12 bisect {}={}", knob, BisectEnabled(knob) ? 1 : 0));
     D3D12_FEATURE_DATA_SHADER_MODEL model{D3D_SHADER_MODEL_6_0};
     Check(device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &model, sizeof(model)),
@@ -1013,10 +1017,19 @@ void Context::MarkWork(std::string_view label) {
         "guest draws",         "upload/copy",          "vertex binding padding",
         "query readback/copy", "queries",              "query report/predicate copy",
         "timestamp query"};
-    if (std::find(state_neutral.begin(), state_neutral.end(), label) == state_neutral.end())
+    static const bool fast_roots = BisectEnabled("NXBOX_D3D12_FAST_ROOT_BINDS");
+    if (fast_roots &&
+        (label == "guest compute" || label == "helper compute" || label == "ASTC compute")) {
+        // Compute changes graphics PSO state, but its own roots remain bound.
+        InvalidateGraphicsState();
+    } else if (std::find(state_neutral.begin(), state_neutral.end(), label) ==
+               state_neutral.end()) {
         InvalidateRecordedState();
+    }
     if (label == "guest draws")
         profile.Count(FrameCount::Draws);
+    if (label == "query GPU reduction")
+        profile.Count(FrameCount::QueryDispatches);
     if (std::find(work.begin(), work.end(), label) != work.end())
         return;
     work.emplace_back(label);
@@ -1160,6 +1173,18 @@ void Context::TransitionSubresources(const ResourcePtr& resource, std::span<cons
     if (!resource)
         throw std::invalid_argument("D3D12 null subresource resource");
     Retain(resource);
+    transition_barriers.clear();
+    AppendSubresourceTransitions(resource, subresources, state);
+    if (!transition_barriers.empty()) {
+        commands->ResourceBarrier(static_cast<UINT>(transition_barriers.size()),
+                                  transition_barriers.data());
+        profile.Count(FrameCount::Barriers, transition_barriers.size());
+        copy_writes.erase(resource->handle.Get());
+    }
+}
+void Context::AppendSubresourceTransitions(const ResourcePtr& resource,
+                                           std::span<const u32> subresources,
+                                           D3D12_RESOURCE_STATES state) {
     const auto desc = resource->handle->GetDesc();
     if (resource->heap != D3D12_HEAP_TYPE_DEFAULT ||
         desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER ||
@@ -1181,8 +1206,7 @@ void Context::TransitionSubresources(const ResourcePtr& resource, std::span<cons
                  D3D12_RESOURCE_STATE_STREAM_OUT))
         ++resource->content_version;
     auto& barriers = transition_barriers;
-    barriers.clear();
-    barriers.reserve(subresources.size());
+    barriers.reserve(barriers.size() + subresources.size());
     for (const auto subresource : subresources) {
         auto& before = resource->sub_states[subresource];
         if (before == state)
@@ -1195,12 +1219,8 @@ void Context::TransitionSubresources(const ResourcePtr& resource, std::span<cons
             profile.NoteTransition(before, state, false);
         before = state;
     }
-    if (!barriers.empty()) {
-        commands->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
-        profile.Count(FrameCount::Barriers, barriers.size());
-        copy_writes.erase(resource->handle.Get());
-    }
 }
+
 void Context::CrossListCopyBarrier(Resource& resource, u64 tick, u64 offset, u64 size) {
     // The Xbox queue can overlap consecutive command lists: a copy recorded in an earlier,
     // still-running list (e.g. a new buffer's zero fill) raced the next upload into it.
@@ -1303,7 +1323,10 @@ void Context::GlobalUavBarrier() {
     list->ResourceBarrier(1, &barrier);
     profile.Count(FrameCount::Barriers);
 }
-void Context::TransitionBatch(std::span<const std::pair<ResourcePtr, D3D12_RESOURCE_STATES>> uses) {
+void Context::TransitionBatch(std::span<const std::pair<ResourcePtr, D3D12_RESOURCE_STATES>> uses,
+                              bool uav_before,
+                              std::span<const std::pair<ResourcePtr, std::vector<u32>>> sampled,
+                              D3D12_RESOURCE_STATES sampled_state) {
     const FrameProfile::Scope profile_barrier{profile, FramePhase::Barriers};
     // Start/retire recording before reading tracked states: completion callbacks
     // can themselves record transitions. Keep all intermediate transitions ordered.
@@ -1313,15 +1336,33 @@ void Context::TransitionBatch(std::span<const std::pair<ResourcePtr, D3D12_RESOU
             throw std::invalid_argument("D3D12 null batch resource");
         Retain(use.first);
     }
+    for (const auto& use : sampled) {
+        if (!use.first)
+            throw std::invalid_argument("D3D12 null sampled resource");
+        Retain(use.first);
+    }
     // Retain can open a list and run callbacks which also transition resources.
     // Acquire the shared scratch only after every resource has been retained.
     auto& barriers = transition_barriers;
     barriers.clear();
-    barriers.reserve(uses.size());
+    barriers.reserve(uses.size() + (uav_before ? 1u : 0u));
+    if (uav_before) {
+        D3D12_RESOURCE_BARRIER barrier{};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        barriers.push_back(barrier);
+    }
+    static const bool fast_barriers = BisectEnabled("NXBOX_D3D12_FAST_BARRIERS");
     for (const auto& [resource, state] : uses) {
         if (state & (D3D12_RESOURCE_STATE_COPY_DEST | D3D12_RESOURCE_STATE_UNORDERED_ACCESS |
                      D3D12_RESOURCE_STATE_STREAM_OUT))
             ++resource->content_version;
+        if (fast_barriers && !resource->sub_states.empty() &&
+            std::all_of(resource->sub_states.begin(), resource->sub_states.end(),
+                        [&](auto before) { return before == resource->sub_states.front(); })) {
+            // A uniform subresource state is exactly representable by ALL_SUBRESOURCES.
+            resource->state = resource->sub_states.front();
+            resource->sub_states.clear();
+        }
         if (!resource->sub_states.empty()) {
             for (u32 subresource = 0; subresource < resource->sub_states.size(); ++subresource) {
                 const auto before = resource->sub_states[subresource];
@@ -1351,11 +1392,16 @@ void Context::TransitionBatch(std::span<const std::pair<ResourcePtr, D3D12_RESOU
                                    D3D12_RESOURCE_DIMENSION_BUFFER);
         resource->state = state;
     }
+    // No GPU work intervenes: preserve UAV/transition order in one API call.
+    for (const auto& [resource, subresources] : sampled)
+        AppendSubresourceTransitions(resource, subresources, sampled_state);
     if (!barriers.empty()) {
         list->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
         profile.Count(FrameCount::Barriers, barriers.size());
-        for (const auto& barrier : barriers)
-            copy_writes.erase(barrier.Transition.pResource);
+        for (const auto& barrier : barriers) {
+            if (barrier.Type == D3D12_RESOURCE_BARRIER_TYPE_TRANSITION)
+                copy_writes.erase(barrier.Transition.pResource);
+        }
     }
 }
 void Context::AfterCompletion(std::function<void()> callback) {

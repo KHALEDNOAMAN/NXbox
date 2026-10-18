@@ -190,6 +190,9 @@ enum class FrameCount : size_t {
     StagingNewResources,
     UniformSnapshotRequests,
     UniformSnapshotNewResources,
+    GuestDispatches,
+    HelperDispatches,
+    QueryDispatches,
     Count
 };
 // Monotonic CPU samples, independent of the host clock API, for exclusive phases.
@@ -463,6 +466,17 @@ public:
     // recording. Resource barriers and predication do not change cached state.
     void InvalidateRecordedState() {
         ++recording_generation;
+        compute_roots = {};
+    }
+    void InvalidateGraphicsState() {
+        ++recording_generation;
+    }
+    struct ComputeRootState {
+        RecordedValue<ID3D12RootSignature*> signature;
+        std::array<RecordedValue<D3D12_GPU_VIRTUAL_ADDRESS>, 64> cbvs;
+    };
+    ComputeRootState& ComputeRoots() {
+        return compute_roots;
     }
     RecordedDrawState& DrawState() {
         recorded_state.Refresh(recording_generation);
@@ -509,7 +523,10 @@ public:
     /// Orders every prior UAV write before later work on the GPU, without a CPU wait.
     void GlobalUavBarrier();
     // Explicit batch keeps raw Commands() users ordered; no hidden deferred barriers.
-    void TransitionBatch(std::span<const std::pair<ResourcePtr, D3D12_RESOURCE_STATES>> uses);
+    void TransitionBatch(std::span<const std::pair<ResourcePtr, D3D12_RESOURCE_STATES>> uses,
+                         bool uav_before = false,
+                         std::span<const std::pair<ResourcePtr, std::vector<u32>>> sampled = {},
+                         D3D12_RESOURCE_STATES sampled_state = D3D12_RESOURCE_STATE_COMMON);
     FrameProfile& Profile() {
         return profile;
     }
@@ -539,6 +556,10 @@ public:
     }
 
 private:
+    void AppendSubresourceTransitions(const ResourcePtr& resource,
+                                      std::span<const u32> subresources,
+                                      D3D12_RESOURCE_STATES state);
+    ComputeRootState compute_roots;
     bool typed_uav_load_additional_formats{};
     void CrossListCopyBarrier(Resource& resource, u64 tick, u64 offset, u64 size);
 #ifndef NXBOX_UWP
