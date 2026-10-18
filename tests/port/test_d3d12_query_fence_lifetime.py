@@ -75,7 +75,7 @@ struct Memory {
     std::optional<u64> GpuToCpuAddress(u64 address) { return address; }
 };
 struct GPU { u64 GetTicks() { return 1234; } };
-struct Runtime {};
+struct Runtime { bool fast{}; bool FastQueries() const { return fast; } };
 template<class Traits> struct Impl {
     Runtime runtime;
     StreamerInterface payload,counter;
@@ -133,6 +133,23 @@ int main() {
     QueryCacheBase<Native> immediate;
     immediate.CounterReport(16,QueryType::Payload,QueryPropertiesFlags::None,99,0);
     assert(immediate.Value()==99 && immediate.impl->payload.freed==1 && immediate.cached_queries.empty());
+    for (bool high : {false, true}) {
+        Settings::high=high;
+        for (auto flags : {QueryPropertiesFlags::None, QueryPropertiesFlags::HasTimeout,
+                          QueryPropertiesFlags::IsAFence}) {
+            QueryCacheBase<Native> slow, fast;
+            fast.impl->runtime.fast=true;
+            slow.CounterReport(16,QueryType::Payload,flags,0xfedcba98U,0);
+            fast.CounterReport(16,QueryType::Payload,flags,0xfedcba98U,0);
+            assert(slow.impl->rasterizer.pending.size()==fast.impl->rasterizer.pending.size());
+            assert(slow.impl->payload.freed==fast.impl->payload.freed);
+            assert(slow.cached_queries.size()==fast.cached_queries.size());
+            for(auto& op:slow.impl->rasterizer.pending) op();
+            for(auto& op:fast.impl->rasterizer.pending) op();
+            assert(slow.impl->device_memory.bytes==fast.impl->device_memory.bytes);
+            assert(slow.impl->payload.queries.size()==fast.impl->payload.queries.size());
+        }
+    }
 }
 """
 

@@ -69,6 +69,7 @@ public:
     bool HostConditionalRenderingCompareValues(VideoCommon::LookupData first,
                                                VideoCommon::LookupData second, bool qc_dirty,
                                                bool equal_check);
+    bool FastQueries() const;
     void ReportQueryFenceWait();
     void ReportPending();
     void ReportCompleted(bool invalidated);

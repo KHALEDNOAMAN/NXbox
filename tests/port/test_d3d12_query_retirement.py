@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DRIVER = r"""
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cassert>
 #include <condition_variable>
@@ -76,13 +77,15 @@ protected:
         return id;
     }
     std::mutex guard;
+public:
     std::deque<Query> slot_queries;
 };
 }
 struct QueryCacheRuntime {
     u64 next{};
     int synced{}, copies{};
-    bool gpu{};
+    bool gpu{}, fast{};
+    u64 baseline{};
     std::function<void()> on_sync;
     void EnableCounter(QueryType,bool) {}
     void ResetCounter(QueryType) {}
@@ -90,6 +93,11 @@ struct QueryCacheRuntime {
     CounterResult ReadCounter(QueryType,u32) {
         ++next;
         if (!gpu) return {next, {}};
+        if (fast) {
+            auto pair = std::make_shared<std::array<u64, 2>>(std::array<u64, 2>{next, baseline});
+            auto buffer = std::shared_ptr<u64>(pair, pair->data());
+            return {0, {buffer, {reinterpret_cast<unsigned char*>(buffer.get()), 2 * sizeof(u64)}}};
+        }
         auto buffer = std::make_shared<u64>(next);
         return {0, {buffer, {reinterpret_cast<unsigned char*>(buffer.get()), sizeof(u64)}}};
     }
@@ -153,6 +161,23 @@ int main() {
     streamer.PopUnsyncedQueries();
     streamer.Free(c);
     assert(streamer.freed == 6404 && runtime.synced == 6401 && runtime.copies == 0);
+    runtime.fast = true;
+    runtime.next = 0x200000000ULL;
+    runtime.baseline = 0x1ffffffffULL;
+    const auto wide = streamer.WriteCounter(64, true, 0);
+    runtime.baseline = ~u64{0};
+    const auto saturated = streamer.WriteCounter(80, false, 0);
+    streamer.PushUnsyncedQueries();
+    // Later resets/totals cannot change either report's captured inputs.
+    runtime.baseline = 0;
+    runtime.next = 999;
+    streamer.PopUnsyncedQueries();
+    assert(streamer.slot_queries[wide].value == 2);
+    assert(streamer.slot_queries[saturated].value == 0);
+    assert(VideoCommon::True(streamer.slot_queries[wide].flags &
+                             VideoCommon::QueryFlagBits::IsFinalValueSynced));
+    streamer.Free(wide);
+    streamer.Free(saturated);
 }
 """
 

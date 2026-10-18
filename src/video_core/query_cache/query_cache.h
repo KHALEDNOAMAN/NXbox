@@ -287,6 +287,21 @@ void QueryCacheBase<Traits>::CounterReport(GPUVAddr addr, QueryType counter_type
         if (!immediate_payload)
             impl->runtime.ReportPending();
     }
+    if constexpr (requires { impl->runtime.FastQueries(); }) {
+        if (immediate_payload && impl->runtime.FastQueries()) {
+            // Immediate writes retain streamer bookkeeping; only the unused callback is omitted.
+            if (has_timestamp) {
+                u64 timestamp = impl->gpu.GetTicks();
+                u64 value = static_cast<u64>(payload);
+                std::memcpy(pointer_timestamp, &timestamp, sizeof(timestamp));
+                std::memcpy(pointer, &value, sizeof(value));
+            } else {
+                std::memcpy(pointer, &payload, sizeof(payload));
+            }
+            streamer->Free(new_query_id);
+            return;
+        }
+    }
     std::function<void()> operation([this, is_synced, streamer, query_base = query, query_location,
                                      pointer, pointer_timestamp] {
         std::scoped_lock lock(cache_mutex);

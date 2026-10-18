@@ -272,6 +272,7 @@ change emulation behavior and are intended only to isolate device removal:
 | `NXBOX_D3D12_NO_COMPUTE` | Skip guest compute dispatches; retain helper compute and GPU work accounting. |
 | `NXBOX_D3D12_NO_DRAWS` | Skip direct/indirect guest draws; retain clears, compositor presentation and GPU work accounting. |
 | `NXBOX_D3D12_NO_QUERIES` | Disable native query heaps, begin/end/resolve, timestamps and host predication; return zero counters/timestamps and retain guest report writes. |
+| `NXBOX_D3D12_FAST_QUERIES` | Default off. Snapshot each native counter's total and reset baseline into 16 readback bytes, then subtract after the existing batch fence. Removes the report-only compute dispatch and its two global UAV barriers; the UAV/copy transitions still order every producer, snapshot and later reset. SO byte-cursor reports and synchronous queries keep their existing paths. Immediate payload reports retain their streamer/GPU-copy bookkeeping but avoid constructing a discarded callback. `fast_query_reports` counts eligible reports and `query_read_counter` isolates counter snapshot CPU work (nested allocation/barrier/submit phases remain exclusive). |
 | `NXBOX_D3D12_SYNC_QUERIES` | Set to `1` to restore synchronous query collection (submit and CPU wait at each report/reset). Otherwise native query results, accumulated totals and reset baselines stay on the GPU. Reports are copied only to readback snapshots; after the batch fence completes, the query cache writes their values directly to guest memory and marks them `IsGuestSynced`. Counter reports do not copy into guest GPU buffers or mark buffer-cache regions GPU-modified. A guest read of an unfinished report drains the batch once; subsequent reports in that batch are already available. Query mode is selected when the runtime is created. `NXBOX_D3D12_NO_QUERIES` takes precedence. `gpu_resolved_query_reports` counts GPU snapshots; `query_report_fence_waits` counts guest reads that request a fence drain because the final query value is still pending (not completion-thread waits); `forced_submits_query_bank` still counts actual forced collection submits. |
 | `NXBOX_D3D12_CPU_PREDICATE` | Evaluate every conditional render on the CPU (readback and fence wait per check). Host-managed counter reports use Maxwell's guest-memory comparison path. For other values, single values and comparisons against a known zero are resolved on the GPU by default, and other two-report comparisons render unconditionally unless GPU accuracy is high, as in the Vulkan backend. |
 
@@ -483,3 +484,48 @@ compiled in about a second. The emitter now writes `nx_returned = true;` and gua
 follows the region with `if (!nx_returned) {`, so every exit stays structured (a loop's
 repeat test also checks the flag). Programs whose returns are all at the top level are
 emitted as before. `NXBOX_HLSL_RAW_RETURNS=1` restores the old form for bisecting.
+
+### Query report CPU cost audit (opt-in fast queries)
+
+Console baseline supplied for Odyssey, Cap Kingdom: 1334 reports/frame, approximately
+5.7 ms in query reports (4.3 us/report), 1.4 ms in query state and 543 total compute
+dispatches. These are console measurements; the per-operation breakdown below is a
+source audit, not a new console timing measurement.
+
+`Maxwell3D::ProcessQueryGet` forwards report/release flags to `CounterReport`.
+The shared cache translates the address, builds a query from a recycled slot under
+the streamer lock, and registers ordered reports in the page/address maps under
+`cache_mutex`. Its large `std::function` completion capture allocates once per
+ordered report. Fenced releases enter `SignalFence`; ordinary reports use
+`SyncOperation` and retire with the next batch. Thus ordinary reports do not each
+signal a native fence. Fence submission policy stays under the existing
+`NXBOX_D3D12_FENCE_BATCHING` knob.
+
+A native counter report additionally accumulates unconsumed draw queries, dispatches
+a total-minus-baseline shader, allocates an 8-byte staging slice (normally a ring
+allocation, not a heap allocation), and copies the result. The streamer allocates a
+snapshot-map node under `pending_mutex` and queues its query index. Completion takes
+`pending_mutex` then the slot guard, looks up the snapshot, publishes its value, then
+runs the shared guest-write callback under `cache_mutex`. None of these locks, query
+lifetimes, map entries, callbacks, invalidations, rewrites or fence boundaries change
+for ordered reports with fast queries.
+
+The fast counter path replaces only the report subtraction dispatch with two ordered
+8-byte copies. Per eligible report it removes one dispatch, two global UAV barriers,
+compute root/PSO binding, render-target unbinding, two resource-retain calls and one
+`MarkWork` call; it adds one copy and eight readback bytes. Ring allocation granularity
+remains 512 bytes. The transition from UAV to copy-source makes the accumulator
+writes visible, and the next reduction/reset transitions back before writing. Both
+copied inputs belong to the original report point, so later resets cannot affect the
+CPU subtraction. Its unsigned saturation matches the shader, including 64-bit borrow
+and overflow. No resolve/reduction is deferred across a guest-visible boundary.
+
+For console A/B, compare `fast_query_reports`, `dispatches`, `barriers`,
+`query_read_counter`, `maxwell3d_methods` and total GPU-thread time at identical
+accuracy and fence-batching settings. A working estimate is 0.5–1.5 ms/frame if
+roughly 250–500 reports qualify and each avoids 2–3 us of dispatch/state/barrier CPU
+work; report counts and cost must be verified on the console. The 543 baseline
+compute dispatches include reductions and guest compute, so they are an upper bound,
+not an eligible-report count. The callback-only payload saving is smaller and depends
+on the non-fenced payload count. Native query Begin/End/Resolve work in draw recording
+and the measured query-state cost remain unchanged.

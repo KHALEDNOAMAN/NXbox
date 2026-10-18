@@ -143,6 +143,13 @@ public:
                 continue; // Freed before its fence completed.
             auto& query = slot_queries[index];
             std::memcpy(&query.value, snapshot->second.mapped_span.data(), sizeof(u64));
+            // A 16-byte snapshot captures total and baseline at the same ordered report point.
+            if (snapshot->second.mapped_span.size() == 2 * sizeof(u64)) {
+                u64 baseline{};
+                std::memcpy(&baseline, snapshot->second.mapped_span.data() + sizeof(u64),
+                            sizeof(baseline));
+                query.value = query.value >= baseline ? query.value - baseline : 0;
+            }
             query.flags |= VideoCommon::QueryFlagBits::IsFinalValueSynced;
             if (const auto trace = trace_frames.find(index); trace != trace_frames.end()) {
                 Diagnostic(fmt::format("D3D12_QUERY_RESOLVED frame={} cpu={:x} value={}",
@@ -452,6 +459,7 @@ struct QueryCacheRuntimeImpl {
         std::memcpy(&value, result.mapped_span.data(), 8);
         return value;
     }
+    const bool fast_queries{BisectEnabled("NXBOX_D3D12_FAST_QUERIES")};
     const bool synchronous{SynchronousQueries()};
     Context& context;
     Tegra::MaxwellDeviceMemoryManager& memory;
@@ -506,6 +514,9 @@ VideoCommon::StreamerInterface* QueryCacheRuntime::GetStreamerInterface(QueryTyp
 }
 void QueryCacheRuntime::ReportQueryFenceWait() {
     impl->context.Profile().Count(FrameCount::QueryReportFenceWaits);
+}
+bool QueryCacheRuntime::FastQueries() const {
+    return impl->fast_queries;
 }
 void QueryCacheRuntime::ReportPending() { ++impl->pending_reports; }
 void QueryCacheRuntime::ReportCompleted(bool invalidated) {
@@ -605,6 +616,8 @@ void QueryCacheRuntime::CancelDraw() {
     PauseHostConditionalRendering();
 }
 QueryCacheRuntime::CounterResult QueryCacheRuntime::ReadCounter(QueryType type, u32 stream) {
+    const FrameProfile::Scope profile_counter{impl->context.Profile(),
+                                              FramePhase::QueryReadCounter};
     if (BisectEnabled("NXBOX_D3D12_NO_QUERIES"))
         return {};
     impl->RequireClosed();
@@ -623,6 +636,25 @@ QueryCacheRuntime::CounterResult QueryCacheRuntime::ReadCounter(QueryType type, 
     }
     PauseHostConditionalRendering();
     impl->AccumulateGpu();
+    if (impl->fast_queries && type != QueryType::StreamingByteCount) {
+        auto result = impl->readback.Request(2 * sizeof(u64));
+        auto& context = impl->context;
+        const u64 offset = (static_cast<u64>(type) * 4 + stream) * sizeof(u64);
+        // The transition orders both inputs; subtraction waits for the same batch fence.
+        context.Transition(impl->gpu_counters, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        context.Retain(impl->gpu_counters);
+        context.MarkWork("query readback/copy");
+        context.BeforeCopyWrite(result.buffer, result.offset, 2 * sizeof(u64));
+        auto* commands = context.Commands();
+        commands->CopyBufferRegion(result.buffer->handle.Get(), result.offset,
+                                   impl->gpu_counters->handle.Get(), offset, sizeof(u64));
+        commands->CopyBufferRegion(result.buffer->handle.Get(), result.offset + sizeof(u64),
+                                   impl->gpu_counters->handle.Get(), CounterBytes + offset,
+                                   sizeof(u64));
+        context.Profile().Count(FrameCount::FastQueryReports);
+        context.Profile().Count(FrameCount::GpuResolvedQueryReports);
+        return {0, result};
+    }
     impl->DispatchResolve(1, static_cast<u32>(type), stream);
     if (type == QueryType::StreamingByteCount) {
         // The byte counter is the SO cursor, not a sum of primitive statistics.
