@@ -23,11 +23,13 @@
 #include "video_core/renderer_d3d12/d3d12_compile_policy.h"
 
 namespace D3D12 {
-// Match the upstream asynchronous-shader heuristic: small draws can build persistent
-// textures only once. Stream output also has side effects that cannot be dropped.
-constexpr bool CanSkipPendingGraphicsPso(bool enabled, std::uint32_t index_count,
-                                         std::uint32_t vertex_count, bool transform_feedback) {
-    return enabled && index_count > 6 && vertex_count > 6 && !transform_feedback;
+// Small draws can build persistent textures only once, so they wait for their PSO. Stream
+// output also has side effects that cannot be dropped. Only the count of the draw being made
+// decides: the other one is left over from an earlier draw (a 3-vertex fullscreen pass made every
+// later indexed mesh look small, so Wonder waited on them for 69 s of a 380 s run).
+constexpr bool CanSkipPendingGraphicsPso(bool enabled, std::uint32_t draw_count,
+                                         bool transform_feedback) {
+    return enabled && draw_count > 6 && !transform_feedback;
 }
 
 // Jobs own immutable inputs. Only this map is shared with the requesting thread;

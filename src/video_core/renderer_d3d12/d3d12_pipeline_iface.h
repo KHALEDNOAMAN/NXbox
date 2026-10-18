@@ -63,7 +63,8 @@ class IPipelineCache {
 public:
     virtual ~IPipelineCache() = default;
     // Builds or looks up the pipeline for the current Maxwell3D state. nullptr skips the draw.
-    virtual IGraphicsPipeline* CurrentGraphicsPipeline(const Pso::FramebufferFormats& formats) = 0;
+    virtual IGraphicsPipeline* CurrentGraphicsPipeline(const Pso::FramebufferFormats& formats,
+                                                       bool is_indexed) = 0;
 };
 
 // Output slot i of the fragment shader writes color target draw_buffers[i]; the rasterizer

@@ -43,10 +43,14 @@ creation, or time an individual animation's hitch.
 ## Change and limits
 
 `NXBOX_D3D12_ASYNC_SHADERS=1` with `NXBOX_D3D12_ASYNC_PSO=1` bypasses that wait
-for pending graphics draws only when both index and vertex counts exceed six
-and transform feedback is disabled. The small-draw rule matches
-`renderer_vulkan/vk_pipeline_cache.cpp::BuiltPipeline`; it preserves the existing
-bounded wait for likely one-shot texture-generation quads. Compute retains its
+for pending graphics draws only when the drawn count (indices for an indexed draw,
+vertices otherwise) exceeds six and transform feedback is disabled. The rule
+started as a copy of `renderer_vulkan/vk_pipeline_cache.cpp::BuiltPipeline`, which
+tests both counts; one of them is always left over from an earlier draw, so a
+3-vertex fullscreen pass made every later indexed mesh wait (Wonder: 123 waits,
+69 s of a 380 s run). It preserves the bounded wait for likely one-shot
+texture-generation quads. `PSO_WAIT` lines record `indexed`, `count`, `depth`
+and the first render target size of each waited draw. Compute retains its
 existing wait. Pending requests remain retryable, including queue saturation;
 a later small draw of a previously skipped PSO can still take its bounded wait.
 

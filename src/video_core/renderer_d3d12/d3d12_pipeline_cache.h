@@ -66,7 +66,8 @@ public:
         : VideoCommon::ShaderCache{memory}, context{context_} {}
     ~PipelineCache() override;
     void BindToChannel(s32 id) override;
-    IGraphicsPipeline* CurrentGraphicsPipeline(const Pso::FramebufferFormats& formats) override;
+    IGraphicsPipeline* CurrentGraphicsPipeline(const Pso::FramebufferFormats& formats,
+                                               bool is_indexed) override;
     ComputePipeline* CurrentComputePipeline();
     void LoadDiskResources(u64 title_id, std::stop_token stop_loading,
                            const VideoCore::DiskResourceLoadCallback& callback,

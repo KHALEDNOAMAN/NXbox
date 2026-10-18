@@ -1238,8 +1238,8 @@ IGraphicsPipeline* PipelineCache::RememberGraphicsPipeline(const GraphicsPipelin
     return pipeline;
 }
 
-IGraphicsPipeline* PipelineCache::CurrentGraphicsPipeline(
-    const Pso::FramebufferFormats& formats) try {
+IGraphicsPipeline* PipelineCache::CurrentGraphicsPipeline(const Pso::FramebufferFormats& formats,
+                                                          bool is_indexed) try {
     const FrameProfile::Scope profile_lookup{context.Profile(), FramePhase::PipelineLookup};
     if (!maxwell3d)
         return nullptr;
@@ -1436,9 +1436,9 @@ IGraphicsPipeline* PipelineCache::CurrentGraphicsPipeline(
                                         sizeof(async_shaders_value)) == 1 &&
                 async_shaders_value[0] == '1';
             const auto& draw = maxwell3d->draw_manager.draw_state;
+            const u32 draw_count = is_indexed ? draw.index_buffer.count : draw.vertex_buffer.count;
             const bool may_skip = CanSkipPendingGraphicsPso(
-                skip_pending, draw.index_buffer.count, draw.vertex_buffer.count,
-                maxwell3d->regs.transform_feedback_enabled != 0);
+                skip_pending, draw_count, maxwell3d->regs.transform_feedback_enabled != 0);
             if (!may_skip && pso_waited.insert(request_hash).second) {
                 static const bool trace_wait = BisectEnabled("NXBOX_D3D12_PSO_TRACE");
                 const auto wait_start = trace_wait ? std::chrono::steady_clock::now()
@@ -1452,10 +1452,14 @@ IGraphicsPipeline* PipelineCache::CurrentGraphicsPipeline(
                     const auto elapsed = std::chrono::duration<double, std::milli>(
                                              std::chrono::steady_clock::now() - wait_start)
                                              .count();
+                    const auto& regs = maxwell3d->regs;
+                    const auto& rt0 = regs.rt[regs.rt_control.Map(0)];
                     Diagnostic(fmt::format(
-                        "PSO_WAIT request={:016x} kind=graphics wall_ms={:.3f} status={} thread={}",
+                        "PSO_WAIT request={:016x} kind=graphics wall_ms={:.3f} status={} thread={} "
+                        "indexed={} count={} depth={} rt0={}x{}",
                         request_hash, elapsed, static_cast<int>(settled.status),
-                        GetCurrentThreadId()));
+                        GetCurrentThreadId(), is_indexed, draw_count, regs.zeta_enable != 0,
+                        rt0.width, rt0.height));
                 }
                 if (settled.status == AsyncCache::Status::Ready) {
                     StoreGuestGraphics(request, settled.result->graphics.get());

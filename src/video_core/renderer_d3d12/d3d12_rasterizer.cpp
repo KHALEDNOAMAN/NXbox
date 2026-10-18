@@ -612,7 +612,7 @@ void RasterizerD3D12::PrepareDraw(bool is_indexed, Func&& draw) {
         const FrameProfile::Scope profile_query{context.Profile(), FramePhase::QueryState};
         query_runtime.PrepareDraw();
     }
-    IGraphicsPipeline* const pipeline = pipeline_cache->CurrentGraphicsPipeline(formats);
+    IGraphicsPipeline* const pipeline = pipeline_cache->CurrentGraphicsPipeline(formats, is_indexed);
     if (!pipeline) {
         VideoCommon::SubmissionTrace::Log("host_draw_drop reason=pending_or_failed_pso");
         return;
