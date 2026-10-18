@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       build_run:
-        description: Successful main-branch build run ID
+        description: Successful build run ID from this repository (any branch; diagnostic only)
         required: true
         type: string
       kind:
@@ -54,11 +54,14 @@ jobs:
           if ($env:SOURCE_RUN -notmatch '^\d+$') { throw 'Invalid build run ID' }
           $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:SOURCE_RUN" | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) { throw 'Cannot read source build' }
-          if ($run.conclusion -ne 'success' -or $run.head_branch -ne 'main' -or
+          # A manual run may package a branch of this repository for console testing; the
+          # packaging scripts still come from main and the result is a 14-day diagnostic artifact.
+          $branch_allowed = $run.head_branch -eq 'main' -or $env:GITHUB_EVENT_NAME -eq 'workflow_dispatch'
+          if ($run.conclusion -ne 'success' -or -not $branch_allowed -or
               $run.head_repository.full_name -ne $env:GITHUB_REPOSITORY -or
               $run.path -ne '.github/workflows/build-nxbox.yml' -or
               $run.event -notin @('push', 'workflow_dispatch')) {
-            throw 'Only successful, trusted main-branch NXbox builds may be packaged'
+            throw 'Only successful NXbox builds from this repository may be packaged (automatic packaging: main only)'
           }
           "run_id=$env:SOURCE_RUN" >> $env:GITHUB_OUTPUT
           "revision=$($run.head_sha)" >> $env:GITHUB_OUTPUT
