@@ -576,7 +576,14 @@ void QueryCacheRuntime::EndDraw() {
     context.Retain(impl->results);
     if (!impl->synchronous)
         context.Transition(impl->results, D3D12_RESOURCE_STATE_COPY_DEST);
-    context.InvalidateRecordedState();
+    // Nearly every draw records a query, so the cache has to survive this point or it never skips
+    // a call (redundant_state_skips was 0 in production). Everything stays valid except the
+    // stream-output targets: forgetting them makes the next draw re-issue SOSetTargets, which
+    // vkd3d-proton implements as end_current_render_pass(). Under Wine, draws that share a render
+    // pass with the previous query draw render stretched geometry in SM3DW 1-1 and Odyssey;
+    // bisected, re-recording any other category does not help and neither does predicating on
+    // the CPU. The cause of the sharing problem is still open; drop this line when it is found.
+    context.DrawState().stream_output = {};
     auto* commands = context.Commands();
     const auto end = [&](ID3D12QueryHeap* heap, D3D12_QUERY_TYPE type, u64 offset) {
         commands->EndQuery(heap, type, slot);
